@@ -1,0 +1,135 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light/Cream Theme */
+    --background: 40 20% 98%;
+    --foreground: 24 10% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 24 10% 10%;
+
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 30 20% 94%;
+    --secondary-foreground: 24 10% 20%;
+
+    --muted: 30 15% 90%;
+    --muted-foreground: 24 5% 45%;
+
+    --accent: 30 20% 94%;
+    --accent-foreground: 24 10% 20%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 30 15% 88%;
+    --input: 30 15% 88%;
+    --ring: 24 95% 53%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 95%;
+
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 95%;
+
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 90%;
+
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 60%;
+
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 90%;
+
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 95%;
+
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 24 95% 53%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Floating ball window needs transparent background */
+  html.floating-ball-mode,
+  html.floating-ball-mode body {
+    background: transparent !important;
+  }
+}
+
+@layer components {
+  .user-bubble {
+    @apply bg-[#E8E4DF] text-stone-800 rounded-2xl px-5 py-4 leading-relaxed;
+  }
+
+  .command-block {
+    @apply bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm;
+  }
+
+  .command-block-header {
+    @apply flex items-center justify-between px-4 py-3 hover:bg-stone-50 transition-colors cursor-pointer;
+  }
+
+  .steps-indicator {
+    @apply flex items-center gap-2 text-sm text-stone-400 pl-4 border-l-2 border-stone-200 ml-1;
+  }
+
+  .input-bar {
+    @apply bg-white border border-stone-200 rounded-xl flex items-center shadow-sm transition-all;
+    @apply focus-within:border-stone-300 focus-within:ring-2 focus-within:ring-orange-100;
+  }
+
+  .input-bar-dark {
+    @apply bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden;
+  }
+
+  .floating-ball {
+    @apply w-16 h-16 rounded-full bg-stone-800 flex items-center justify-center shadow-2xl cursor-pointer;
+    @apply transition-transform hover:scale-105;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.3);
+}
