@@ -54,6 +54,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          files: release/*/OpenCowork*
+          files: |
+            release/*/OpenCowork*.dmg
+            release/*/OpenCowork*.exe
+            release/*/OpenCowork*.AppImage
+            release/*/OpenCowork*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
