@@ -11,7 +11,13 @@ jobs:
 
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+          - os: ubuntu-latest
+            platform: linux
 
     steps:
       -
@@ -41,7 +47,7 @@ jobs:
         run: |
           npx tsc
           npx vite build
-          npx electron-builder --publish always
+          npx electron-builder --${{ matrix.platform }} --publish always
 
       -
         name: Upload build artifacts
@@ -50,4 +56,4 @@ jobs:
         with:
           name: build-artifacts-${{ matrix.os }}
           path: |
-            release/**
+            release/*/OpenCowork*
