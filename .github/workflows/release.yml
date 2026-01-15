@@ -47,7 +47,7 @@ jobs:
         run: |
           npx tsc
           npx vite build
-          npx electron-builder --${{ matrix.platform }} --publish always
+          npx electron-builder --${{ matrix.platform }}
 
       -
         name: Upload build artifacts
