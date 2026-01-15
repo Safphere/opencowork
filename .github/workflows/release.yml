@@ -49,11 +49,11 @@ jobs:
           npx vite build
           npx electron-builder --${{ matrix.platform }} --publish never
 
-      -
-        name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+      - 
+        name: Upload executables to Release
+        uses: softprops/action-gh-release@v2
         if: success()
         with:
-          name: build-artifacts-${{ matrix.os }}
-          path: |
-            release/*/OpenCowork*
+          files: release/*/OpenCowork*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
