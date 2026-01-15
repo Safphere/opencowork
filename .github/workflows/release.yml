@@ -50,9 +50,4 @@ jobs:
         with:
           name: build-artifacts-${{ matrix.os }}
           path: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.zip
-            dist/*.AppImage
-            dist/*.deb
-            dist/latest*.yml
+            release/**
