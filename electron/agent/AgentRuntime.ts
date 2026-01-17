@@ -218,6 +218,7 @@ ${workingDirContext}
                 // Pass abort signal to the API for true interruption
                 const stream: any = await this.anthropic.messages.create({
                     model: this.model,
+                    max_tokens: 131072,
                     system: systemPrompt,
                     messages: this.history,
                     stream: true,
