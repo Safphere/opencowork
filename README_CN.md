@@ -54,6 +54,39 @@ OpenCowork 允许 AI 操作本地文件系统和终端，使用前请注意：
 
 ---
 
+## 安装
+
+### 下载安装
+
+从 [Releases](https://github.com/Safphere/opencowork/releases) 页面下载适合你平台的最新版本：
+
+- **Windows:** `.exe` 安装程序或便携版
+- **macOS:** `.dmg` 安装程序
+- **Linux:** `.AppImage` 或 `.deb` 安装包
+
+### 从源码构建
+
+**前置条件：** Node.js v18+（推荐 v20 LTS）
+
+```bash
+# 克隆仓库
+git clone https://github.com/Safphere/opencowork.git
+cd opencowork
+
+# 安装依赖
+npm install
+
+# 开发模式运行
+npm run dev
+
+# 生产环境构建
+npm run build
+```
+
+构建产物位于 `release/` 目录下。
+
+---
+
 ## 核心功能
 
 ### 技能系统
