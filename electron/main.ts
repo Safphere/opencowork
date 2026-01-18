@@ -127,6 +127,20 @@ app.whenReady().then(() => {
     }
   })
 
+  // 开发模式下注册 F12 快捷键打开开发者工具
+  if (VITE_DEV_SERVER_URL) {
+    globalShortcut.register('F12', () => {
+      if (mainWin && mainWin.isFocused()) {
+        mainWin.webContents.toggleDevTools()
+      }
+    })
+    globalShortcut.register('CommandOrControl+Shift+I', () => {
+      if (mainWin && mainWin.isFocused()) {
+        mainWin.webContents.toggleDevTools()
+      }
+    })
+  }
+
   // Show main window in dev mode
   if (VITE_DEV_SERVER_URL) {
     mainWin?.show()
@@ -238,6 +252,11 @@ ipcMain.handle('agent:set-working-dir', (_, folderPath: string) => {
   const newFolders = [folderPath, ...folders.filter(f => f !== folderPath)]
   configStore.set('authorizedFolders', newFolders)
   return true
+})
+
+ipcMain.handle('agent:get-working-dir', () => {
+  const folders = configStore.getAll().authorizedFolders || []
+  return folders.length > 0 ? folders[0] : null
 })
 
 ipcMain.handle('config:get-all', () => configStore.getAll())
@@ -573,7 +592,7 @@ function createMainWindow() {
     minHeight: 600,
     icon: iconImage || iconPath,
     frame: false,
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
@@ -596,6 +615,10 @@ function createMainWindow() {
 
   mainWin.webContents.on('did-finish-load', () => {
     mainWin?.webContents.send('main-process-message', (new Date).toLocaleString())
+    // 开发模式下打开开发者工具
+    if (VITE_DEV_SERVER_URL) {
+      mainWin?.webContents.openDevTools()
+    }
   })
 
   if (VITE_DEV_SERVER_URL) {

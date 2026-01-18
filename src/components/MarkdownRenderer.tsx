@@ -22,7 +22,7 @@ interface MarkdownRendererProps {
 
 export function MarkdownRenderer({ content, className = '', isDark = false }: MarkdownRendererProps) {
     return (
-        <div className={`prose ${isDark ? 'prose-invert' : 'prose-stone'} max-w-none ${className}`}>
+        <div className={`prose ${isDark ? 'prose-invert' : 'prose-stone'} max-w-none ${className}`} style={{ wordBreak: 'break-all' }}>
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{

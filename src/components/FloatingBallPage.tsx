@@ -48,6 +48,7 @@ export function FloatingBallPage() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const collapseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const messagesRef = useRef<HTMLDivElement>(null);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
     // Auto-resize textarea
@@ -61,6 +62,13 @@ export function FloatingBallPage() {
             }
         }
     }, [input, ballState]);
+
+    // Auto-scroll to bottom when messages change
+    useEffect(() => {
+        if (messagesRef.current && ballState === 'expanded') {
+            messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+        }
+    }, [messages, streamingText, ballState]);
 
     // Add transparent class to html element
     useEffect(() => {
@@ -180,7 +188,7 @@ export function FloatingBallPage() {
         try {
             // Send as object if images exist, otherwise string for backward compat
             if (images.length > 0) {
-                await window.ipcRenderer.invoke('agent:send-message', { content: input, images });
+                await window.ipcRenderer.invoke('agent:send-message', { content: input.trim(), images });
             } else {
                 await window.ipcRenderer.invoke('agent:send-message', input.trim());
             }
@@ -199,7 +207,7 @@ export function FloatingBallPage() {
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             handleSubmit(e as any);
         }
@@ -458,11 +466,11 @@ export function FloatingBallPage() {
                 <div className="px-2 pb-1.5 flex items-center justify-between">
                     <div className="flex items-center gap-1">
                         <button
-                            onClick={() => {
-                                window.ipcRenderer.invoke('agent:new-session');
-                                setMessages([]);
-                                setImages([]);
-                            }}
+                        onClick={() => {
+                            window.ipcRenderer.invoke('agent:new-session');
+                            setMessages([]);
+                            setImages([]);
+                        }}
                             className="flex items-center gap-1 px-2 py-1 text-xs text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
                         >
                             <Plus size={12} />
@@ -604,7 +612,7 @@ export function FloatingBallPage() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-hide">
+            <div ref={messagesRef} className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3 min-h-0">
                 {messages.filter(m => m.role !== 'system').map((msg, idx) => {
                     if (msg.role === 'user') {
                         const text = typeof msg.content === 'string' ? msg.content :
@@ -616,7 +624,7 @@ export function FloatingBallPage() {
                         if (Array.isArray(msg.content) && msg.content[0]?.type === 'tool_result') return null;
 
                         return (
-                            <div key={idx} className="bg-stone-100 rounded-xl px-3 py-2 text-sm text-stone-700 max-w-[85%] space-y-2">
+                            <div key={idx} className="bg-stone-100 rounded-xl px-3 py-2 text-sm text-stone-700 max-w-[85%] space-y-2" style={{ wordBreak: 'break-all' }}>
                                 {images.length > 0 && (
                                     <div className="flex gap-2 flex-wrap">
                                         {images.map((img, i: number) => (
@@ -630,7 +638,7 @@ export function FloatingBallPage() {
                                         ))}
                                     </div>
                                 )}
-                                {text && <div>{text}</div>}
+                                {text && <div style={{ wordBreak: 'break-all' }} className="whitespace-pre-wrap">{text}</div>}
                                 {!text && images.length === 0 && '...'}
                             </div>
                         );
@@ -642,14 +650,14 @@ export function FloatingBallPage() {
                             {blocks.map((block, i: number) => {
                                 if (block.type === 'text' && block.text) {
                                     return (
-                                        <div key={i} className="text-sm text-stone-600 leading-relaxed max-w-none">
+                                        <div key={i} className="text-sm text-stone-600 leading-relaxed max-w-none" style={{ wordBreak: 'break-all' }}>
                                             <MarkdownRenderer content={block.text} className="prose-sm" />
                                         </div>
                                     );
                                 }
                                 if (block.type === 'tool_use') {
                                     return (
-                                        <div key={i} className="text-xs text-stone-400 bg-stone-50 rounded px-2 py-1">
+                                        <div key={i} className="text-xs text-stone-400 bg-stone-50 rounded px-2 py-1" style={{ wordBreak: 'break-all' }}>
                                             ⌘ {block.name}
                                         </div>
                                     );
@@ -662,7 +670,7 @@ export function FloatingBallPage() {
 
                 {/* Streaming */}
                 {streamingText && (
-                    <div className="text-sm text-stone-600 leading-relaxed max-w-none">
+                    <div className="text-sm text-stone-600 leading-relaxed max-w-none" style={{ wordBreak: 'break-all' }}>
                         <MarkdownRenderer content={streamingText} className="prose-sm" />
                         <span className="inline-block w-1.5 h-4 bg-orange-500 ml-0.5 animate-pulse" />
                     </div>
@@ -678,7 +686,7 @@ export function FloatingBallPage() {
             </div>
 
             {/* Input */}
-            <div className="border-t border-stone-100 p-2">
+            <div className="border-t border-stone-100 p-2 shrink-0">
                 {/* Image Preview */}
                 {images.length > 0 && (
                     <div className="flex gap-2 mb-2 overflow-x-auto pb-1 px-1 scrollbar-hide">

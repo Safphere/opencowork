@@ -495,7 +495,7 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                                                 <div key={idx} className="flex items-center justify-between p-2 bg-white border border-stone-200 rounded-lg">
                                                     <div className="flex-1">
                                                         <p className="text-sm font-mono text-stone-700">{p.tool}</p>
-                                                        <p className="text-xs text-stone-400">{p.pathPattern === '*' ? '所有路径' : p.pathPattern}</p>
+                                                        <p className="text-xs text-stone-400 break-all">{p.pathPattern === '*' ? '所有路径' : p.pathPattern}</p>
                                                     </div>
                                                     <button
                                                         onClick={() => revokePermission(p.tool, p.pathPattern)}

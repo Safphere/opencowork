@@ -79,6 +79,15 @@
   html.floating-ball-mode body {
     background: transparent !important;
     overflow: hidden !important;
+    height: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  html.floating-ball-mode #root {
+    height: 100% !important;
+    width: 100% !important;
   }
 
   /* Prevent global scroll on main window too unless needed */
@@ -130,6 +139,23 @@
     scrollbar-width: none;
     /* Firefox */
   }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--border) / 0.3);
+    border-radius: 2px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--border) / 0.5);
+  }
 }
 
 ::-webkit-scrollbar {
@@ -142,10 +168,10 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted));
+  background: hsl(var(--border) / 0.5);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: hsl(var(--muted) / 0.6);
 }

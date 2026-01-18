@@ -25,7 +25,7 @@ export function ChatView() {
                         <div className={`max-w-[80%] p-3 rounded-lg ${m.role === 'user'
                             ? 'bg-primary text-primary-foreground rounded-br-none'
                             : 'bg-muted rounded-bl-none'
-                            }`}>
+                            }`} style={{ wordBreak: 'break-all' }}>
                             {m.content}
                         </div>
                     </div>

@@ -55,16 +55,19 @@ export function ConfirmDialog({ request, onConfirm, onDeny }: ConfirmDialogProps
                             </pre>
                         </div>
                     )}
-                    {/* Remember checkbox */}
-                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-secondary/30 transition-colors">
-                        <input
-                            type="checkbox"
-                            checked={remember}
-                            onChange={(e) => setRemember(e.target.checked)}
-                            className="w-4 h-4 rounded accent-primary"
-                        />
-                        <span className="text-sm text-muted-foreground">记住此选择，以后自动执行</span>
-                    </label>
+
+                    {/* Remember options */}
+                    <div className="space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-secondary/30 transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={remember}
+                                onChange={(e) => setRemember(e.target.checked)}
+                                className="w-4 h-4 rounded accent-primary"
+                            />
+                            <span className="text-sm text-muted-foreground">记住此选择，以后自动执行</span>
+                        </label>
+                    </div>
                 </div>
 
                 {/* Actions */}

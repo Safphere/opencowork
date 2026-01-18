@@ -128,12 +128,12 @@ export function FloatingChat({
                         <div key={idx} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                             {msg.role === 'user' ? (
                                 // User Message - Warm Gray Bubble (Reference Image 2 - top bubble)
-                                <div className="bg-stone-200/80 text-stone-800 rounded-2xl px-5 py-4 text-sm leading-relaxed max-w-[90%] shadow-sm">
+                                <div className="bg-stone-200/80 text-stone-800 rounded-2xl px-5 py-4 text-sm leading-relaxed max-w-[90%] shadow-sm" style={{ wordBreak: 'break-all' }}>
                                     {msg.content}
                                 </div>
                             ) : (
                                 // Assistant Message - Clean typography
-                                <div className="space-y-4 w-full">
+                                <div className="space-y-4 w-full" style={{ wordBreak: 'break-all' }}>
                                     <p className="text-stone-700 text-base leading-7">
                                         {msg.content}
                                     </p>
@@ -176,7 +176,7 @@ export function FloatingChat({
                                                         />
                                                     </button>
                                                     {expandedBlocks.has(block.id) && block.output && (
-                                                        <div className="border-t border-stone-100 bg-stone-50 p-4 max-h-48 overflow-y-auto">
+                                                        <div className="border-t border-stone-100 bg-stone-50 p-4 max-h-48 overflow-y-auto" style={{ wordBreak: 'break-all' }}>
                                                             <pre className="text-xs font-mono text-stone-500 whitespace-pre-wrap">{block.output}</pre>
                                                         </div>
                                                     )}
