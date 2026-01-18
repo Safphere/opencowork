@@ -19,6 +19,7 @@
   "type": "module",
   "scripts": {
     "dev": "chcp 65001 && vite",
+    "dev:mac": "vite",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
     "preview": "vite preview"

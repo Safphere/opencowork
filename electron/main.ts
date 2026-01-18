@@ -573,7 +573,7 @@ function createMainWindow() {
     minHeight: 600,
     icon: iconImage || iconPath,
     frame: false,
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
