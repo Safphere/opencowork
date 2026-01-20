@@ -36,30 +36,41 @@
   }
 
   .dark {
-    --background: 0 0% 7%;
-    --foreground: 0 0% 95%;
+    /* Premium Dark Theme (Zinc/Neutral based) */
+    --background: 240 10% 4%;
+    /* Very dark, almost black */
+    --foreground: 0 0% 98%;
 
-    --card: 0 0% 10%;
-    --card-foreground: 0 0% 95%;
+    --card: 240 10% 6%;
+    /* Slightly lighter than bg */
+    --card-foreground: 0 0% 98%;
+
+    --popover: 240 10% 6%;
+    --popover-foreground: 0 0% 98%;
 
     --primary: 24 95% 53%;
+    /* Keep the Brand Orange */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 0 0% 90%;
+    --secondary: 240 6% 12%;
+    /* Dark subtle secondary */
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 60%;
+    --muted: 240 6% 12%;
+    --muted-foreground: 240 5% 65%;
 
-    --accent: 0 0% 15%;
-    --accent-foreground: 0 0% 90%;
+    --accent: 240 6% 12%;
+    --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 62% 30%;
-    --destructive-foreground: 0 0% 95%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 18%;
-    --input: 0 0% 18%;
+    --border: 240 6% 16%;
+    /* Subtle dark borders */
+    --input: 240 6% 16%;
     --ring: 24 95% 53%;
+
+    --radius: 0.75rem;
   }
 }
 
@@ -90,15 +101,15 @@
 
 @layer components {
   .user-bubble {
-    @apply bg-[#E8E4DF] text-stone-800 rounded-2xl px-5 py-4 leading-relaxed;
+    @apply bg-[#E8E4DF] text-stone-800 dark:bg-zinc-800 dark:text-zinc-200 rounded-2xl px-4 py-2.5 leading-6 shadow-sm;
   }
 
   .command-block {
-    @apply bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm;
+    @apply bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-sm;
   }
 
   .command-block-header {
-    @apply flex items-center justify-between px-4 py-3 hover:bg-stone-50 transition-colors cursor-pointer;
+    @apply flex items-center justify-between px-4 py-3 hover:bg-stone-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer;
   }
 
   .steps-indicator {
@@ -148,4 +159,58 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.3);
+}
+
+@layer utilities {
+  @keyframes spin-slow {
+    from {
+      transform: rotate(0deg);
+    }
+
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .animate-spin-slow {
+    animation: spin-slow 3s linear infinite;
+  }
+
+  @keyframes breathe {
+
+    0%,
+    100% {
+      opacity: 0.6;
+      transform: scale(0.98);
+    }
+
+    50% {
+      opacity: 1;
+      transform: scale(1.02);
+    }
+  }
+
+  .animate-breathe {
+    animation: breathe 2s ease-in-out infinite;
+  }
+
+  @keyframes success-pop {
+    0% {
+      transform: scale(0.8);
+      opacity: 0;
+    }
+
+    50% {
+      transform: scale(1.1);
+    }
+
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  .animate-success-pop {
+    animation: success-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
 }

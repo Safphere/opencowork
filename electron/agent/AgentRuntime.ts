@@ -49,12 +49,30 @@ export class AgentRuntime {
     public async initialize() {
         console.log('Initializing AgentRuntime...');
         try {
-            await this.skillManager.loadSkills();
-            await this.mcpService.loadClients();
+            // Parallelize loading for faster startup
+            await Promise.all([
+                this.skillManager.loadSkills(),
+                this.mcpService.loadClients()
+            ]);
             console.log('AgentRuntime initialized (Skills & MCP loaded)');
         } catch (error) {
             console.error('Failed to initialize AgentRuntime:', error);
         }
+    }
+
+    // Hot-Swap Configuration without reloading context
+    public updateConfig(model: string, apiUrl?: string, apiKey?: string) {
+        if (this.model === model && !apiUrl && !apiKey) return;
+
+        this.model = model;
+        // Re-create Anthropic client if credentials change
+        if (apiUrl || apiKey) {
+            this.anthropic = new Anthropic({
+                apiKey: apiKey || this.anthropic.apiKey,
+                baseURL: apiUrl || this.anthropic.baseURL
+            });
+        }
+        console.log(`[Agent] Hot-Swap: Model updated to ${model}`);
     }
 
     public removeWindow(win: BrowserWindow) {
@@ -181,34 +199,72 @@ export class AgentRuntime {
                 : '\n\nNote: No working directory has been selected yet. Ask the user to select a folder first.';
 
             const skillsDir = os.homedir() + '/.opencowork/skills';
-            const systemPrompt = `You are OpenCowork, an advanced AI agent capable of managing files, executing complex tasks, and assisting the user.
-            
-            TOOL USAGE:
-            - Use 'read_file', 'write_file', and 'list_dir' for file operations.
-            - Use 'run_command' to execute shell commands, Python scripts, npm commands, etc.
-            - You can use skills defined in ~/.opencowork/skills/ - when a skill is loaded, follow its instructions immediately.
-            - Skills with a 'core/' directory (like slack-gif-creator) have Python modules you can import directly.
-              Example: Set PYTHONPATH to the skill directory and run your script.
-            - You can access external tools provided by MCP servers (prefixed with server name).
+            const systemPrompt = `
+<system_prompt>
+    <agent_profile>
+        You are OpenCowork, an advanced AI desktop assistant.
+        You are capable of executing complex tasks, managing files, and assisting with coding, research, and analysis.
+        You operate within a secure, local environment with controlled access to the user's selected directories.
+        **Key Capability**: You are deeply integrated with the ZAI ecosystem tools and have full access to local MCP servers.
+    </agent_profile>
 
-SKILLS DIRECTORY: ${skillsDir}
-${workingDirContext}
+    <behavior_guidelines>
+        <tone>
+            - Professional, direct, and concise. Avoid excessive pleasantries.
+            - **Execution First**: Focus on completing the user's request efficiently.
+            - **Proactive Verification**: If a task relies on an external tool, verify it is available first.
+        </tone>
+        <formatting>
+            - Use Markdown for all responses.
+            - Write in clear prose. Avoid bullet points for documents unless specifically requested (e.g. for a summary list).
+        </formatting>
+    </behavior_guidelines>
 
-            PLANNING:
-            - For complex requests, you MUST start with a <plan> block.
-            - Inside <plan>, list the steps you will take as <task> items.
-            - Mark completed tasks with [x] and pending with [ ] if you update the plan.
-            - Example:
-              <plan>
-                <task>Analyze requirements</task>
-                <task>Create implementation plan</task>
-                <task>Write code</task>
-              </plan>
-            
-            IMPORTANT:
-            - If you use a skill/tool that provides instructions or context (like web-artifacts-builder), you MUST proceed to the NEXT logical step immediately in the subsequent turn. Do NOT stop to just "acknowledge" receipt of instructions.
-            - When using skills with core/ modules, create a Python script in the working directory that imports from the skill's core (add skill dir to PYTHONPATH).
-            - Provide clear, concise updates.`;
+    <tool_usage_standards>
+        <file_handling>
+            - **Primary Workspace (Deliverables)**: The folder(s) listed in <context> below. 
+              - SAVE FINAL OUTPUTS HERE. This is the only place the user can easily see files.
+            - **Temporary Workspace (Scratchpad)**: Use \`os.tmpdir()\` or the current working directory ONLY for intermediate steps (e.g., extracting archives, temp scripts).
+            - **Strategy**: 
+              - Simple tasks: Write directly to Primary Workspace.
+              - Complex tasks: Build in Temp -> Validate -> Move to Primary.
+            - **SECURITY**: Do NOT access or modify files outside of the authorized directories listed in <context> unless explicitly instructed and authorized by the user.
+        </file_handling>
+
+        <skills_policy>
+            **CRITICAL: SKILLS FIRST**
+            - You have access to specialized "Skills" in: \`${skillsDir}\`.
+            - **Procedure**: BEFORE performing a task (e.g., "Add MCP Server", "Write Document"), check for a relevant \`SKILL.md\`, read it, and follow it.
+            - **MCP Management**: Always refer to \`mcp_manager/SKILL.md\` for configuring servers (modifying \`mcp.json\`).
+        </skills_policy>
+
+        <mcp_tools>
+            - **Built-in Servers**: You have access to specialized servers like \`zai-mcp-server\` (Local) and \`web-search-prime\` (Search).
+            - **Integration**: Use these tools preferentially for search and local execution.
+            - **Namespace**: Tools are prefixed, e.g., \`web-search-prime__google_search\`.
+        </mcp_tools>
+    </tool_usage_standards>
+
+    <planning_requirement>
+        - For requests involving multiple steps, tools, or research, START with a <plan> block.
+        - Format:
+          <plan>
+            <task>[x] Step 1</task>
+            <task>[ ] Step 2</task>
+          </plan>
+    </planning_requirement>
+
+    <context>
+        ${workingDirContext}
+        
+        **Skills Location**: \`${skillsDir}\`
+        
+        **Available Skills (Level 1 Metadata)**:
+        ${this.skillManager.getSkillMetadata().map(s => `- ${s.name}: ${s.description}`).join('\n        ')}
+
+        **Active MCP Servers**: ${JSON.stringify(this.mcpService.getActiveServers())}
+    </context>
+</system_prompt>`;
 
             console.log('Sending request to API...');
             console.log('Model:', this.model);
@@ -252,6 +308,11 @@ ${workingDirContext}
                                 textBuffer += chunk.delta.text;
                                 // Broadcast streaming token to ALL windows
                                 this.broadcast('agent:stream-token', chunk.delta.text);
+                            } else if ((chunk.delta as any).type === 'reasoning_content' || (chunk.delta as any).reasoning) {
+                                // Support for native "Thinking" models (DeepSeek/compatible args)
+                                const reasoningObj = chunk.delta as any;
+                                const text = reasoningObj.text || reasoningObj.reasoning || ""; // Adapt to provider
+                                this.broadcast('agent:stream-thinking', text);
                             } else if (chunk.delta.type === 'input_json_delta' && currentToolUse) {
                                 currentToolUse.input += chunk.delta.partial_json;
                             }
@@ -521,5 +582,9 @@ ${skillInfo.instructions}
         // Mark processing as complete
         this.isProcessing = false;
         this.abortController = null;
+    }
+    public dispose() {
+        this.abort();
+        this.mcpService.dispose();
     }
 }

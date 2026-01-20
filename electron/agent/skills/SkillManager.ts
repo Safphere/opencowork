@@ -15,6 +15,17 @@ export class SkillManager {
     private skillsDir: string;
     private skills: Map<string, SkillDefinition> = new Map();
 
+    getSkillNames(): string[] {
+        return Array.from(this.skills.keys());
+    }
+
+    getSkillMetadata(): { name: string; description: string }[] {
+        return Array.from(this.skills.values()).map(s => ({
+            name: s.name,
+            description: s.description
+        }));
+    }
+
     constructor() {
         this.skillsDir = path.join(os.homedir(), '.opencowork', 'skills');
     }

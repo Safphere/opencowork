@@ -106,7 +106,11 @@ app.whenReady().then(() => {
   createMainWindow()
   createFloatingBallWindow()
 
-  // 3. Initialize agent AFTER windows are created
+  // 3. Built-in skills are now loaded async by SkillManager (inside initializeAgent)
+  // ensureBuiltinSkills() - Removed
+
+
+  // 4. Initialize agent AFTER windows are created
   initializeAgent()
 
   // 4. Create system tray
@@ -242,16 +246,92 @@ ipcMain.handle('agent:set-working-dir', (_, folderPath: string) => {
 
 ipcMain.handle('config:get-all', () => configStore.getAll())
 ipcMain.handle('config:set-all', (_, cfg) => {
-  if (cfg.apiKey) configStore.setApiKey(cfg.apiKey)
-  if (cfg.apiUrl) configStore.setApiUrl(cfg.apiUrl)
-  if (cfg.model) configStore.setModel(cfg.model)
-  configStore.set('authorizedFolders', cfg.authorizedFolders || [])
-  configStore.setNetworkAccess(cfg.networkAccess || false)
-  if (cfg.shortcut) configStore.set('shortcut', cfg.shortcut)
+  configStore.setAll(cfg)
 
-  // Reinitialize agent
-  initializeAgent()
+  // Hot-Swap capability: Update existing agent without destroying context
+  if (agent) {
+    agent.updateConfig(cfg.model, cfg.apiUrl, cfg.apiKey);
+  } else {
+    initializeAgent();
+  }
 })
+
+ipcMain.handle('config:test-connection', async (_, { apiKey, apiUrl, model }) => {
+  try {
+    console.log(`[Config] Testing connection to ${apiUrl} with model ${model}`);
+    const tempClient = new Anthropic({
+      apiKey,
+      baseURL: apiUrl || 'https://api.anthropic.com'
+    });
+
+    const response = await tempClient.messages.create({
+      model: model,
+      max_tokens: 10,
+      messages: [{ role: 'user', content: 'Hello' }]
+    });
+
+    console.log('[Config] Test successful:', response.id);
+    return { success: true, message: 'Connection successful!' };
+  } catch (error: any) {
+    console.error('[Config] Test failed:', error);
+    return { success: false, message: error.message || 'Connection failed' };
+  }
+})
+
+ipcMain.handle('app:info', () => {
+  return {
+    name: 'OpenCowork', // app.getName() might be lowercase 'opencowork'
+    version: app.getVersion(),
+    author: 'Safphere', // Hardcoded from package.json
+    homepage: 'https://github.com/Safphere/opencowork'
+  };
+})
+
+ipcMain.handle('app:check-update', async () => {
+  try {
+    const currentVersion = app.getVersion();
+    // Use user agent to comply with GitHub API reqs
+    const response = await fetch('https://api.github.com/repos/Safphere/opencowork/releases/latest', {
+      headers: { 'User-Agent': 'OpenCowork-App' }
+    });
+
+    if (!response.ok) throw new Error('Failed to fetch release info');
+
+    const data = await response.json();
+    const latestTag = data.tag_name || ''; // e.g. "v1.0.4"
+    const latestVersion = latestTag.replace(/^v/, '');
+
+    // Simple semver compare (assuming strict X.Y.Z)
+    // Returns true if latest > current
+    const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+
+    return {
+      success: true,
+      hasUpdate,
+      currentVersion,
+      latestVersion,
+      latestTag,
+      releaseUrl: data.html_url
+    };
+  } catch (error: any) {
+    console.error('Update check failed:', error);
+    return { success: false, error: error.message };
+  }
+})
+
+// Helper for version comparison
+function compareVersions(v1: string, v2: string) {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+    if (p1 > p2) return 1;
+    if (p1 < p2) return -1;
+  }
+  return 0;
+}
 
 // Shortcut update handler
 ipcMain.handle('shortcut:update', (_, newShortcut: string) => {
@@ -320,6 +400,27 @@ ipcMain.handle('floating-ball:move', (_, { deltaX, deltaY }: { deltaX: number, d
 })
 
 // Window controls for custom titlebar
+ipcMain.handle('floating-ball:set-height', (_, arg: number | { height: number, anchorBottom?: boolean }) => {
+  if (!floatingBallWin) return
+
+  const targetHeight = typeof arg === 'number' ? arg : arg.height
+  const anchorBottom = typeof arg === 'object' && arg.anchorBottom
+
+  const bounds = floatingBallWin.getBounds()
+
+  if (anchorBottom) {
+    const newY = bounds.y + bounds.height - targetHeight
+    floatingBallWin.setBounds({
+      x: bounds.x,
+      y: Math.max(0, newY), // Safety clamp
+      width: bounds.width,
+      height: targetHeight
+    })
+  } else {
+    floatingBallWin.setSize(bounds.width, targetHeight)
+  }
+})
+
 ipcMain.handle('window:minimize', () => mainWin?.minimize())
 ipcMain.handle('window:maximize', () => {
   if (mainWin?.isMaximized()) {
@@ -390,6 +491,9 @@ const getBuiltinSkillNames = () => {
   } catch (e) { console.error(e) }
   return [];
 };
+
+// ensureBuiltinSkills logic moved to SkillManager (async) to prevent startup blocking
+// See SkillManager.initializeDefaults()
 
 ipcMain.handle('skills:list', async () => {
   try {
@@ -477,10 +581,24 @@ ipcMain.handle('skills:delete', async (_, skillId: string) => {
   }
 });
 
+ipcMain.handle('skills:open-folder', () => {
+  if (fs.existsSync(skillsDir)) {
+    shell.openPath(skillsDir);
+  } else {
+    fs.mkdirSync(skillsDir, { recursive: true });
+    shell.openPath(skillsDir);
+  }
+});
+
 
 function initializeAgent() {
   const apiKey = configStore.getApiKey() || process.env.ANTHROPIC_API_KEY
   if (apiKey && mainWin) {
+    if (agent) {
+      console.log('Disposing previous agent instance...');
+      agent.dispose();
+    }
+
     agent = new AgentRuntime(apiKey, mainWin, configStore.getModel(), configStore.getApiUrl())
     // Add floating ball window to receive updates
     if (floatingBallWin) {
@@ -587,6 +705,15 @@ function createMainWindow() {
     console.log('Main window ready.')
   })
 
+  // Handle external links
+  mainWin.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https:') || url.startsWith('http:')) {
+      shell.openExternal(url)
+      return { action: 'deny' }
+    }
+    return { action: 'allow' }
+  })
+
   mainWin.on('close', (event) => {
     if (!app.isQuitting) {
       event.preventDefault()
@@ -649,45 +776,56 @@ function createFloatingBallWindow() {
 function toggleFloatingBallExpanded() {
   if (!floatingBallWin) return
 
-  const [currentX, currentY] = floatingBallWin.getPosition()
+  // Get current bounds BEFORE any state changes
+  const bounds = floatingBallWin.getBounds()
+  const currentX = bounds.x
+  const currentY = bounds.y
+  const currentWidth = bounds.width
+
+  // Use workArea to respect taskbars/docks
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
 
   if (isBallExpanded) {
-    // Collapse - Calculate where ball should go based on current expanded window position
-    // Ball's right edge should align with expanded panel's right edge
-    // Ball position = (expanded right edge - BALL_SIZE), same Y
-    const ballX = currentX + EXPANDED_WIDTH - BALL_SIZE
-    const ballY = currentY
+    // Collapse to ball size
+    // Ball should be at the right edge of the expanded window
+    const newWidth = BALL_SIZE
+    const newX = currentX + currentWidth - newWidth
+    const newY = currentY
 
     // Clamp to screen bounds
-    const finalX = Math.max(0, Math.min(ballX, screenWidth - BALL_SIZE))
-    const finalY = Math.max(0, Math.min(ballY, screenHeight - BALL_SIZE))
+    const clampedX = Math.max(0, Math.min(newX, screenWidth - BALL_SIZE))
+    const clampedY = Math.max(0, Math.min(newY, screenHeight - BALL_SIZE))
 
-    floatingBallWin.setSize(BALL_SIZE, BALL_SIZE)
-    floatingBallWin.setPosition(finalX, finalY)
+    // Use setBounds to set position and size atomically (prevents flicker)
+    floatingBallWin.setBounds({
+      x: Math.round(clampedX),
+      y: Math.round(clampedY),
+      width: BALL_SIZE,
+      height: BALL_SIZE
+    })
     isBallExpanded = false
   } else {
-    // Expand
-    // Horizontal-only expansion: Keep Y same, expand LEFT from ball
+    // Expand to conversation view
+    // Window expands to the LEFT, keeping Y position the same
+    const newWidth = EXPANDED_WIDTH
+    const newX = currentX + currentWidth - newWidth
+    const newY = currentY
 
-    // Keep Y the same - no vertical movement
-    // Only move X to the left so ball's right edge stays at same position
-    // Ball's right edge = currentX + BALL_SIZE
-    // Panel's right edge = newX + EXPANDED_WIDTH = currentX + BALL_SIZE
-    // So: newX = currentX + BALL_SIZE - EXPANDED_WIDTH
+    // Clamp to screen bounds
+    const clampedX = Math.max(0, newX)
+    const clampedY = Math.max(0, newY)
 
-    let newX = currentX + BALL_SIZE - EXPANDED_WIDTH
-    let newY = currentY  // Keep Y the same - NO upward movement
-
-    // Ensure not going negative
-    newX = Math.max(0, newX)
-    newY = Math.max(0, newY)
-
-    floatingBallWin.setSize(EXPANDED_WIDTH, EXPANDED_HEIGHT)
-    floatingBallWin.setPosition(newX, newY)
+    // Use setBounds to set position and size atomically (prevents flicker)
+    floatingBallWin.setBounds({
+      x: Math.round(clampedX),
+      y: Math.round(clampedY),
+      width: EXPANDED_WIDTH,
+      height: EXPANDED_HEIGHT
+    })
     isBallExpanded = true
   }
 
+  // Notify renderer of state change AFTER window bounds are updated
   floatingBallWin.webContents.send('floating-ball:state-changed', isBallExpanded)
 }
 

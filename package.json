@@ -1,7 +1,7 @@
 {
   "name": "opencowork",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "open cowork - 你的数字同事",
   "author": {
     "name": "Safphere",
@@ -30,6 +30,7 @@
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
     "electron-store": "^11.0.2",
+    "eventsource": "^4.1.0",
     "js-yaml": "^4.1.1",
     "lucide-react": "^0.562.0",
     "mermaid": "^11.12.2",

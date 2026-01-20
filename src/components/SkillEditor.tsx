@@ -8,7 +8,10 @@ interface SkillEditorProps {
     onSave: () => void;
 }
 
+import { useI18n } from '../i18n/I18nContext';
+
 export function SkillEditor({ filename, readOnly = false, onClose, onSave }: SkillEditorProps) {
+    const { t } = useI18n();
     const [name, setName] = useState('');
     const [content, setContent] = useState('');
 
@@ -30,7 +33,7 @@ export function SkillEditor({ filename, readOnly = false, onClose, onSave }: Ski
 
         // Basic validation
         if (!content.startsWith('---')) {
-            alert('Skill must start with YAML frontmatter (---)');
+            alert(t('yamlError'));
             return;
         }
 
@@ -41,54 +44,54 @@ export function SkillEditor({ filename, readOnly = false, onClose, onSave }: Ski
 
     return (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl w-full max-w-2xl h-[80vh] flex flex-col shadow-2xl">
-                <div className="flex items-center justify-between p-4 border-b border-stone-100">
-                    <h3 className="text-lg font-semibold text-stone-800">
-                        {readOnly ? '查看技能' : (filename ? '编辑技能' : '新建技能')}
+            <div className="bg-white dark:bg-card rounded-xl w-full max-w-2xl h-[80vh] flex flex-col shadow-2xl border border-stone-200 dark:border-border">
+                <div className="flex items-center justify-between p-4 border-b border-stone-100 dark:border-border">
+                    <h3 className="text-lg font-semibold text-stone-800 dark:text-foreground">
+                        {readOnly ? t('viewSkill') : (filename ? t('editSkill') : t('newSkill'))}
                     </h3>
-                    <button onClick={onClose} className="p-1 text-stone-400 hover:text-stone-600 rounded">
+                    <button onClick={onClose} className="p-1 text-stone-400 hover:text-stone-600 dark:text-muted-foreground dark:hover:text-foreground rounded">
                         <X size={20} />
                     </button>
                 </div>
 
-                <div className="flex-1 p-4 overflow-hidden flex flex-col gap-4">
+                <div className="flex-1 p-4 overflow-hidden flex flex-col gap-4 bg-stone-50/30 dark:bg-muted/10">
                     <div>
-                        <label className="block text-xs font-medium text-stone-500 mb-1.5">文件名 (ID)</label>
+                        <label className="block text-xs font-medium text-stone-500 dark:text-muted-foreground mb-1.5">{t('filenameId')}</label>
                         <input
                             type="text"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             disabled={!!filename || readOnly} // Disable if editing existing or read-only
                             placeholder="my-cool-skill"
-                            className="w-full bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-800 focus:outline-none focus:border-orange-500 disabled:bg-stone-50 disabled:text-stone-700"
+                            className="w-full bg-white dark:bg-card border border-stone-200 dark:border-border rounded-lg px-3 py-2 text-sm text-stone-800 dark:text-foreground focus:outline-none focus:border-orange-500 disabled:bg-stone-50 dark:disabled:bg-muted disabled:text-stone-700 dark:disabled:text-muted-foreground"
                         />
                     </div>
 
                     <div className="flex-1 flex flex-col">
-                        <label className="block text-xs font-medium text-stone-500 mb-1.5">技能定义 (Markdown)</label>
+                        <label className="block text-xs font-medium text-stone-500 dark:text-muted-foreground mb-1.5">{t('skillDefinition')}</label>
                         <textarea
                             value={content}
                             onChange={(e) => setContent(e.target.value)}
                             disabled={readOnly}
-                            className="flex-1 w-full bg-stone-50 border border-stone-200 rounded-lg p-4 font-mono text-xs text-stone-800 focus:outline-none focus:border-orange-500 resize-none disabled:text-stone-700"
+                            className="flex-1 w-full bg-stone-50 dark:bg-muted/50 border border-stone-200 dark:border-border rounded-lg p-4 font-mono text-xs text-stone-800 dark:text-foreground focus:outline-none focus:border-orange-500 resize-none disabled:text-stone-700 dark:disabled:text-muted-foreground"
                             spellCheck={false}
                         />
                     </div>
                 </div>
 
-                <div className="p-4 border-t border-stone-100 flex justify-end gap-2">
+                <div className="p-4 border-t border-stone-100 dark:border-border flex justify-end gap-2 bg-white dark:bg-card rounded-b-xl">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 text-stone-600 hover:bg-stone-100 rounded-lg text-sm transition-colors"
+                        className="px-4 py-2 text-stone-600 dark:text-muted-foreground hover:bg-stone-100 dark:hover:bg-muted rounded-lg text-sm transition-colors"
                     >
-                        {readOnly ? '关闭' : '取消'}
+                        {readOnly ? t('close') : t('cancel')}
                     </button>
                     {!readOnly && (
                         <button
                             onClick={handleSave}
                             className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 transition-colors shadow-sm cursor-pointer"
                         >
-                            保存技能
+                            {t('saveSkill')}
                         </button>
                     )}
                 </div>

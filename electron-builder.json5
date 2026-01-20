@@ -22,6 +22,10 @@
     {
       "from": "public/icon.png",
       "to": "icon.png"
+    },
+    {
+      "from": "resources/skills",
+      "to": "skills"
     }
   ],
   "mac": {

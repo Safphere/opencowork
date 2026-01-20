@@ -14,7 +14,10 @@ interface ConfirmDialogProps {
     onDeny: (id: string) => void;
 }
 
+import { useI18n } from '../i18n/I18nContext';
+
 export function ConfirmDialog({ request, onConfirm, onDeny }: ConfirmDialogProps) {
+    const { t } = useI18n();
     const [remember, setRemember] = useState(false);
 
     if (!request) return null;
@@ -31,8 +34,8 @@ export function ConfirmDialog({ request, onConfirm, onDeny }: ConfirmDialogProps
                             <AlertTriangle className="text-amber-500" size={24} />
                         </div>
                         <div>
-                            <h3 className="font-semibold text-lg">操作确认</h3>
-                            <p className="text-sm text-muted-foreground">请确认是否执行此操作</p>
+                            <h3 className="font-semibold text-lg">{t('actionConfirmation')}</h3>
+                            <p className="text-sm text-muted-foreground">{t('confirmActionDesc')}</p>
                         </div>
                     </div>
                 </div>
@@ -40,16 +43,16 @@ export function ConfirmDialog({ request, onConfirm, onDeny }: ConfirmDialogProps
                 {/* Body */}
                 <div className="p-5 space-y-4">
                     <div>
-                        <p className="text-sm text-muted-foreground mb-1">工具</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('tool')}</p>
                         <p className="font-mono text-sm bg-secondary/50 px-3 py-2 rounded-lg">{request.tool}</p>
                     </div>
                     <div>
-                        <p className="text-sm text-muted-foreground mb-1">描述</p>
+                        <p className="text-sm text-muted-foreground mb-1">{t('description')}</p>
                         <p className="text-foreground">{request.description}</p>
                     </div>
                     {request.args && Object.keys(request.args).length > 0 && (
                         <div>
-                            <p className="text-sm text-muted-foreground mb-1">参数</p>
+                            <p className="text-sm text-muted-foreground mb-1">{t('arguments')}</p>
                             <pre className="bg-secondary/50 p-3 rounded-lg text-xs font-mono overflow-x-auto max-h-32">
                                 {JSON.stringify(request.args, null, 2)}
                             </pre>
@@ -63,7 +66,7 @@ export function ConfirmDialog({ request, onConfirm, onDeny }: ConfirmDialogProps
                             onChange={(e) => setRemember(e.target.checked)}
                             className="w-4 h-4 rounded accent-primary"
                         />
-                        <span className="text-sm text-muted-foreground">记住此选择，以后自动执行</span>
+                        <span className="text-sm text-muted-foreground">{t('rememberChoice')}</span>
                     </label>
                 </div>
 
@@ -76,7 +79,7 @@ export function ConfirmDialog({ request, onConfirm, onDeny }: ConfirmDialogProps
                         }}
                         className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-destructive/10 text-destructive rounded-xl hover:bg-destructive/20 transition-colors font-medium"
                     >
-                        <X size={18} /> 拒绝
+                        <X size={18} /> {t('deny')}
                     </button>
                     <button
                         onClick={() => {
@@ -85,7 +88,7 @@ export function ConfirmDialog({ request, onConfirm, onDeny }: ConfirmDialogProps
                         }}
                         className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-colors font-medium"
                     >
-                        <Check size={18} /> 允许
+                        <Check size={18} /> {t('allow')}
                     </button>
                 </div>
             </div>

@@ -29,6 +29,7 @@ interface CoworkViewProps {
 }
 
 export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOpenSettings }: CoworkViewProps) {
+    const { t } = useI18n();
     const [input, setInput] = useState('');
     const [images, setImages] = useState<string[]>([]); // Base64 strings
     const [mode, setMode] = useState<Mode>('work');
@@ -38,7 +39,9 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
     const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
     const [showHistory, setShowHistory] = useState(false);
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
-    const [modelName, setModelName] = useState<string>('Claude-3.5-Sonnet');
+    const [config, setConfig] = useState<any>(null); // Store full config
+    // Removed standalone modelName state, derive from config
+    const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
 
     // Change ref to textarea
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -61,12 +64,34 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
     };
 
     // Load config including model name
+    // Provider Constants
+    const PROVIDER_MODELS: Record<string, string[]> = {
+        'glm': ['glm-4.7', 'glm-4.6'],
+        'zai': ['glm-4.7', 'glm-4.6'],
+        'minimax_cn': ['MiniMax-M2.1'],
+        'minimax_intl': ['MiniMax-M2.1'],
+        'custom': []
+    };
+    const PROVIDER_NAMES: Record<string, string> = {
+        'glm': '智谱 GLM',
+        'zai': 'ZAI',
+        'minimax_cn': 'MiniMax (国内)',
+        'minimax_intl': 'MiniMax (海外)',
+        'custom': '自定义'
+    };
+
+    // Helper method to get display name
+    const getModelDisplayName = (cfg: any) => {
+        if (!cfg || !cfg.activeProviderId || !cfg.providers) return 'Loading...';
+        const p = cfg.providers[cfg.activeProviderId];
+        return p ? `${p.model}` : 'Unknown';
+    };
+
     useEffect(() => {
         window.ipcRenderer.invoke('config:get-all').then((cfg) => {
-            const config = cfg as { model?: string } | undefined;
-            if (config?.model) setModelName(config.model);
+            setConfig(cfg as any); // Use full config
         });
-        // Listen for streaming tokens
+        // ... existing listeners
         const removeStreamListener = window.ipcRenderer.on('agent:stream-token', (_event, ...args) => {
             const token = args[0] as string;
             setStreamingText(prev => prev + token);
@@ -225,27 +250,27 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
     const relevantHistory = history.filter(m => (m.role as string) !== 'system');
 
     return (
-        <div className="flex flex-col h-full bg-[#FAF8F5] relative">
+        <div className="flex flex-col h-full bg-[#FAF8F5] dark:bg-zinc-950 relative">
             {/* Permission Dialog Overlay */}
             {permissionRequest && (
                 <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl animate-in fade-in zoom-in-95 duration-200">
+                    <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 w-full max-w-md shadow-xl animate-in fade-in zoom-in-95 duration-200 border border-stone-200 dark:border-zinc-800">
                         <div className="flex items-center gap-3 mb-4">
                             <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
                                 <AlertTriangle size={24} className="text-amber-600" />
                             </div>
                             <div>
-                                <h3 className="font-semibold text-stone-800 text-lg">操作确认</h3>
-                                <p className="text-sm text-stone-500">{permissionRequest.tool}</p>
+                                <h3 className="font-semibold text-stone-800 dark:text-zinc-100 text-lg">{t('actionConfirmation')}</h3>
+                                <p className="text-sm text-stone-500 dark:text-zinc-400">{permissionRequest.tool}</p>
                             </div>
                         </div>
 
-                        <p className="text-stone-600 mb-4">{permissionRequest.description}</p>
+                        <p className="text-stone-600 dark:text-zinc-300 mb-4">{permissionRequest.description}</p>
 
                         {/* Show details if write_file */}
                         {typeof permissionRequest.args?.path === 'string' && (
-                            <div className="bg-stone-50 rounded-lg p-3 mb-4 font-mono text-xs text-stone-600">
-                                <span className="text-stone-400">路径: </span>
+                            <div className="bg-stone-50 dark:bg-zinc-800 rounded-lg p-3 mb-4 font-mono text-xs text-stone-600 dark:text-zinc-300 border border-stone-200 dark:border-zinc-700">
+                                <span className="text-stone-400 dark:text-zinc-500">{t('path')} </span>
                                 {permissionRequest.args.path as string}
                             </div>
                         )}
@@ -253,17 +278,17 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                         <div className="flex gap-3">
                             <button
                                 onClick={() => handlePermissionResponse(false)}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors"
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-stone-600 dark:text-zinc-300 bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 rounded-xl transition-colors"
                             >
                                 <X size={16} />
-                                拒绝
+                                {t('deny')}
                             </button>
                             <button
                                 onClick={() => handlePermissionResponse(true)}
                                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 rounded-xl transition-colors"
                             >
                                 <Check size={16} />
-                                允许
+                                {t('allow')}
                             </button>
                         </div>
                     </div>
@@ -291,25 +316,25 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
             )}
 
             {/* Top Bar with Mode Tabs and Settings */}
-            <div className="border-b border-stone-200 bg-white px-6 py-2.5 flex items-center justify-between shrink-0">
+            <div className="border-b border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-2.5 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                     {/* Mode Tabs */}
-                    <div className="flex items-center gap-0.5 bg-stone-100 rounded-lg p-0.5">
+                    <div className="flex items-center gap-0.5 bg-stone-100 dark:bg-zinc-800 rounded-lg p-0.5">
                         <button
                             onClick={() => setMode('chat')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${mode === 'chat' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${mode === 'chat' ? 'bg-white dark:bg-zinc-700 text-stone-800 dark:text-zinc-100 shadow-sm' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-700 dark:hover:text-zinc-200'
                                 }`}
                         >
                             <MessageCircle size={14} />
-                            Chat
+                            {t('chat')}
                         </button>
                         <button
                             onClick={() => setMode('work')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${mode === 'work' ? 'bg-white text-stone-800 shadow-sm' : 'text-stone-500 hover:text-stone-700'
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${mode === 'work' ? 'bg-white dark:bg-zinc-700 text-stone-800 dark:text-zinc-100 shadow-sm' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-700 dark:hover:text-zinc-200'
                                 }`}
                         >
                             <Zap size={14} />
-                            Work
+                            {t('cowork')}
                         </button>
                     </div>
                 </div>
@@ -317,29 +342,29 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                 {/* History + Settings */}
                 <div className="flex items-center gap-2">
                     {workingDir && (
-                        <span className="text-xs text-stone-400 truncate max-w-32">
+                        <span className="text-xs text-stone-400 dark:text-zinc-500 truncate max-w-32">
                             📂 {workingDir.split(/[\\/]/).pop()}
                         </span>
                     )}
                     <div className="flex items-center gap-1">
                         <button
                             onClick={() => window.ipcRenderer.invoke('agent:new-session')}
-                            className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
-                            title="新会话"
+                            className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                            title={t('newSession')}
                         >
                             <Plus size={16} />
                         </button>
                         <button
                             onClick={() => setShowHistory(!showHistory)}
-                            className={`p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors ${showHistory ? 'bg-stone-100 text-stone-600' : ''}`}
-                            title="历史记录"
+                            className={`p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800 rounded-lg transition-colors ${showHistory ? 'bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300' : ''}`}
+                            title={t('history')}
                         >
                             <History size={16} />
                         </button>
                     </div>
                     <button
                         onClick={onOpenSettings}
-                        className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
+                        className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800 rounded-lg transition-colors"
                         title="Settings"
                     >
                         <Settings size={16} />
@@ -349,15 +374,15 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
 
             {/* History Panel - Floating Popover */}
             {showHistory && (
-                <div className="absolute top-12 right-6 z-20 w-80 bg-white rounded-xl shadow-xl border border-stone-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100 bg-stone-50/50">
+                <div className="absolute top-12 right-6 z-20 w-80 bg-white dark:bg-zinc-900 rounded-xl shadow-xl border border-stone-200 dark:border-zinc-800 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100 dark:border-zinc-800 bg-stone-50/50 dark:bg-zinc-800/50">
                         <div className="flex items-center gap-2">
                             <History size={14} className="text-orange-500" />
-                            <span className="text-sm font-semibold text-stone-700">历史任务</span>
+                            <span className="text-sm font-semibold text-stone-700 dark:text-zinc-200">{t('taskHistory')}</span>
                         </div>
                         <button
                             onClick={() => setShowHistory(false)}
-                            className="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
+                            className="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg transition-colors"
                         >
                             <X size={14} />
                         </button>
@@ -366,16 +391,16 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                     <div className="max-h-[320px] overflow-y-auto p-2">
                         {sessions.length === 0 ? (
                             <div className="py-8 text-center">
-                                <p className="text-sm text-stone-400">暂无历史会话</p>
+                                <p className="text-sm text-stone-400 dark:text-zinc-500">{t('noHistorySessions')}</p>
                             </div>
                         ) : (
                             <div className="space-y-1">
                                 {sessions.map((session) => (
                                     <div
                                         key={session.id}
-                                        className="group relative p-3 rounded-lg hover:bg-stone-50 transition-colors border border-transparent hover:border-stone-100"
+                                        className="group relative p-3 rounded-lg hover:bg-stone-50 dark:hover:bg-zinc-800 transition-colors border border-transparent hover:border-stone-100 dark:hover:border-zinc-700"
                                     >
-                                        <p className="text-xs font-medium text-stone-700 line-clamp-2 leading-relaxed">
+                                        <p className="text-xs font-medium text-stone-700 dark:text-zinc-300 line-clamp-2 leading-relaxed">
                                             {session.title}
                                         </p>
                                         <p className="text-[10px] text-stone-400 mt-1">
@@ -394,7 +419,7 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                                                 }}
                                                 className="text-[10px] flex items-center gap-1 text-orange-500 hover:text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full"
                                             >
-                                                加载
+                                                {t('load')}
                                             </button>
                                             <button
                                                 onClick={async () => {
@@ -434,8 +459,8 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
 
                             {streamingText && (
                                 <div className="animate-in fade-in duration-200">
-                                    <div className="text-stone-700 text-[15px] leading-7 max-w-none">
-                                        <MarkdownRenderer content={streamingText} />
+                                    <div className="text-stone-700 dark:text-zinc-300 text-[15px] leading-7 max-w-none">
+                                        <MarkdownRenderer content={streamingText} isDark={true} />
                                         <span className="inline-block w-2 h-5 bg-orange-500 ml-0.5 animate-pulse" />
                                     </div>
                                 </div>
@@ -446,14 +471,14 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                     {isProcessing && !streamingText && (
                         <div className="flex items-center gap-2 text-stone-400 text-sm animate-pulse">
                             <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce" />
-                            <span>Thinking...</span>
+                            <span>{t('thinking')}</span>
                         </div>
                     )}
                 </div>
             </div>
 
             {/* Bottom Input */}
-            <div className="border-t border-stone-200 bg-white px-4 pt-3 pb-1 shadow-lg shadow-stone-200/50">
+            <div className="border-t border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 pt-3 pb-1 shadow-lg shadow-stone-200/50 dark:shadow-black/20">
                 <div className="max-w-xl mx-auto">
                     {/* Image Preview Area */}
                     {images.length > 0 && (
@@ -473,7 +498,7 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                     )}
 
                     <form onSubmit={handleSubmit}>
-                        <div className="flex flex-col bg-[#FAF9F7] border border-stone-200 rounded-[20px] px-3 pt-2 pb-1 shadow-sm transition-all hover:shadow-md focus-within:ring-4 focus-within:ring-orange-50/50 focus-within:border-orange-200">
+                        <div className="flex flex-col bg-[#FAF9F7] dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-700 rounded-[20px] px-3 pt-2 pb-1 shadow-sm transition-all hover:shadow-md focus-within:ring-4 focus-within:ring-orange-50/50 focus-within:border-orange-200 dark:focus-within:border-orange-500/30">
 
                             <textarea
                                 ref={inputRef}
@@ -481,9 +506,9 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={handleKeyDown}
                                 onPaste={handlePaste}
-                                placeholder={mode === 'chat' ? "输入消息... (Shift+Enter 换行)" : workingDir ? "描述任务... (Shift+Enter 换行)" : "请先选择工作目录"}
+                                placeholder={mode === 'chat' ? t('inputMessage') : workingDir ? t('describeTaskPlaceholder') : t('selectWorkingDirFirst')}
                                 rows={1}
-                                className="w-full bg-transparent text-stone-800 placeholder:text-stone-400 text-sm focus:outline-none resize-none overflow-y-auto min-h-[24px] max-h-[120px] leading-6 pt-0.5 pb-0 transition-[height] duration-200 ease-out mb-0"
+                                className="w-full bg-transparent text-stone-800 dark:text-zinc-100 placeholder:text-stone-400 dark:placeholder:text-zinc-500 text-sm focus:outline-none resize-none overflow-y-auto min-h-[24px] max-h-[120px] leading-6 pt-0.5 pb-0 transition-[height] duration-200 ease-out mb-0"
                                 style={{
                                     scrollbarWidth: 'none',
                                     msOverflowStyle: 'none',
@@ -503,8 +528,8 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                                     <button
                                         type="button"
                                         onClick={handleSelectFolder}
-                                        className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
-                                        title="选择工作目录"
+                                        className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg transition-colors"
+                                        title={t('selectWorkingDir')}
                                     >
                                         <FolderOpen size={16} />
                                     </button>
@@ -512,8 +537,8 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                                     <button
                                         type="button"
                                         onClick={() => fileInputRef.current?.click()}
-                                        className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
-                                        title="上传图片"
+                                        className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg transition-colors"
+                                        title={t('uploadImage')}
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 0 0 0-2.828 0L6 21" /></svg>
                                     </button>
@@ -526,12 +551,88 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                                         onChange={handleFileSelect}
                                     />
 
-                                    <div className="w-px h-3 bg-stone-200 mx-1" />
+                                    <div className="w-px h-3 bg-stone-200 dark:bg-zinc-700 mx-1" />
 
                                     {/* Model Selector */}
-                                    <div className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-stone-500 bg-stone-100/50 hover:bg-stone-100 rounded-md cursor-pointer transition-colors">
-                                        <span className="max-w-[100px] truncate scale-90 origin-left">{modelName}</span>
-                                        <ChevronDown size={12} className="text-stone-400" />
+                                    <div className="relative">
+                                        <div
+                                            onClick={() => setIsModelSelectorOpen(!isModelSelectorOpen)}
+                                            className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-stone-500 bg-stone-100/50 hover:bg-stone-100 dark:text-zinc-400 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-md cursor-pointer transition-colors max-w-[120px]"
+                                            title={t('switchModel')}
+                                        >
+                                            <span className="truncate scale-90 origin-left">
+                                                {config ? getModelDisplayName(config) : 'Loading...'}
+                                            </span>
+                                            <ChevronDown size={12} className="text-stone-400 dark:text-zinc-500 shrink-0" />
+                                        </div>
+
+                                        {/* Model Selector Popover */}
+                                        {isModelSelectorOpen && config && (
+                                            <>
+                                                <div className="fixed inset-0 z-10" onClick={() => setIsModelSelectorOpen(false)} />
+                                                <div className="absolute bottom-full left-0 mb-2 w-48 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl shadow-xl z-20 max-h-64 overflow-y-auto py-1 animate-in slide-in-from-bottom-2 fade-in duration-200">
+                                                    {Object.keys(PROVIDER_MODELS).map(providerId => {
+                                                        const models = PROVIDER_MODELS[providerId];
+                                                        const providerName = config.providers[providerId]?.name || PROVIDER_NAMES[providerId] || providerId;
+
+                                                        if (providerId === 'custom') {
+                                                            return (
+                                                                <div key={providerId}>
+                                                                    <div className="px-3 py-1.5 text-[10px] font-bold text-stone-400 dark:text-zinc-500 bg-stone-50/50 dark:bg-zinc-800/50 uppercase tracking-wider">
+                                                                        {providerName}
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            const newConfig = { ...config, activeProviderId: providerId };
+                                                                            setConfig(newConfig);
+                                                                            window.ipcRenderer.invoke('config:set-all', newConfig);
+                                                                            setIsModelSelectorOpen(false);
+                                                                        }}
+                                                                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-orange-50 dark:hover:bg-orange-500/10 transition-colors truncate flex items-center justify-between group ${config.activeProviderId === providerId ? 'text-orange-600 dark:text-orange-400 bg-orange-50/50 dark:bg-orange-500/10' : 'text-stone-600 dark:text-zinc-300'}`}
+                                                                    >
+                                                                        <span>{config.providers[providerId]?.model || 'Custom Model'}</span>
+                                                                        {config.activeProviderId === providerId && <Check size={12} />}
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        // Skip if no models defined
+                                                        if (models.length === 0) return null;
+
+                                                        return (
+                                                            <div key={providerId}>
+                                                                <div className="px-3 py-1.5 text-[10px] font-bold text-stone-400 dark:text-zinc-500 bg-stone-50/50 dark:bg-zinc-800/50 uppercase tracking-wider sticky top-0">
+                                                                    {providerName}
+                                                                </div>
+                                                                {models.map(model => (
+                                                                    <button
+                                                                        key={model}
+                                                                        onClick={() => {
+                                                                            const newConfig = { ...config };
+                                                                            newConfig.activeProviderId = providerId;
+                                                                            if (!newConfig.providers[providerId]) {
+                                                                                // Should exist, but safety check
+                                                                                newConfig.providers[providerId] = { id: providerId, model: model, apiKey: '', apiUrl: '' };
+                                                                            }
+                                                                            newConfig.providers[providerId].model = model;
+
+                                                                            setConfig(newConfig);
+                                                                            window.ipcRenderer.invoke('config:set-all', newConfig);
+                                                                            setIsModelSelectorOpen(false);
+                                                                        }}
+                                                                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-orange-50 dark:hover:bg-orange-500/10 transition-colors truncate flex items-center justify-between group ${config.activeProviderId === providerId && config.providers[providerId].model === model ? 'text-orange-600 dark:text-orange-400 bg-orange-50/50 dark:bg-orange-500/10' : 'text-stone-600 dark:text-zinc-300'}`}
+                                                                    >
+                                                                        <span>{model}</span>
+                                                                        {config.activeProviderId === providerId && config.providers[providerId].model === model && <Check size={12} />}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
 
@@ -542,10 +643,10 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                                             type="button"
                                             onClick={onAbort}
                                             className="p-1 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-all flex items-center gap-1 px-2 shadow-sm"
-                                            title="停止"
+                                            title={t('stop')}
                                         >
                                             <Square size={12} fill="currentColor" />
-                                            <span className="text-[10px] font-semibold">停止</span>
+                                            <span className="text-[10px] font-semibold">{t('stop')}</span>
                                         </button>
                                     ) : (
                                         <button
@@ -553,7 +654,7 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                                             disabled={!input.trim() && images.length === 0}
                                             className={`p-1 rounded-lg transition-all shadow-sm flex items-center justify-center ${input.trim() || images.length > 0
                                                 ? 'bg-orange-500 text-white hover:bg-orange-600 hover:shadow-orange-200 hover:shadow-md'
-                                                : 'bg-stone-100 text-stone-300 cursor-not-allowed'
+                                                : 'bg-stone-100 dark:bg-zinc-800 text-stone-300 dark:text-zinc-600 cursor-not-allowed'
                                                 }`}
                                             style={{ width: '26px', height: '26px' }}
                                         >
@@ -565,8 +666,8 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                         </div>
                     </form>
 
-                    <p className="text-[11px] text-stone-400 text-center mt-1.5">
-                        AI 可能会出错，请仔细核查重要信息
+                    <p className="text-[11px] text-stone-400 dark:text-zinc-600 text-center mt-1.5">
+                        {t('aiDisclaimer')}
                     </p>
                 </div>
             </div>
@@ -581,6 +682,7 @@ function MessageItem({ message, expandedBlocks, toggleBlock, showTools, onImageC
     showTools: boolean,
     onImageClick: (src: string) => void
 }) {
+    const { t } = useI18n();
     const isUser = message.role === 'user';
 
     if (isUser && Array.isArray(message.content) && message.content[0]?.type === 'tool_result') {
@@ -651,8 +753,8 @@ function MessageItem({ message, expandedBlocks, toggleBlock, showTools, onImageC
             {groupedBlocks.map((block, i: number) => {
                 if (block.type === 'text' && block.text) {
                     return (
-                        <div key={i} className="text-stone-700 text-[15px] leading-7 max-w-none">
-                            <MarkdownRenderer content={block.text} />
+                        <div key={i} className="text-stone-700 dark:text-zinc-300 text-[15px] leading-7 max-w-none">
+                            <MarkdownRenderer content={block.text} isDark={true} />
                         </div>
                     );
                 }
@@ -679,8 +781,8 @@ function MessageItem({ message, expandedBlocks, toggleBlock, showTools, onImageC
                                             onClick={() => toggleBlock(blockId)}
                                         >
                                             <div className="flex items-center gap-2.5">
-                                                <span className="text-stone-400 text-sm">⌘</span>
-                                                <span className="text-sm text-stone-600 font-medium">{tool.name || 'Running command'}</span>
+                                                <span className="text-stone-400 dark:text-zinc-500 text-sm">⌘</span>
+                                                <span className="text-sm text-stone-600 dark:text-zinc-300 font-medium">{tool.name || 'Running command'}</span>
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 {tool.name === 'write_file' && (
@@ -693,14 +795,14 @@ function MessageItem({ message, expandedBlocks, toggleBlock, showTools, onImageC
                                             </div>
                                         </div>
                                         {isExpanded && (
-                                            <div className="p-3 bg-stone-50 border-t border-stone-100">
+                                            <div className="p-3 bg-stone-50 dark:bg-zinc-900 border-t border-stone-100 dark:border-zinc-800">
                                                 {/* For Context Skills (empty input), show a friendly message */}
                                                 {Object.keys(tool.input || {}).length === 0 ? (
                                                     <div className="text-xs text-emerald-600 font-medium">
-                                                        ✓ Skill loaded into context
+                                                        ✓ {t('skillLoaded')}
                                                     </div>
                                                 ) : (
-                                                    <pre className="text-xs font-mono text-stone-500 whitespace-pre-wrap overflow-x-auto">
+                                                    <pre className="text-xs font-mono text-stone-500 dark:text-zinc-400 whitespace-pre-wrap overflow-x-auto">
                                                         {JSON.stringify(tool.input, null, 2)}
                                                     </pre>
                                                 )}
@@ -724,14 +826,14 @@ function EmptyState({ mode, workingDir }: { mode: Mode, workingDir: string | nul
 
     return (
         <div className="flex flex-col items-center justify-center h-full text-center space-y-4 py-20">
-            <div className="w-16 h-16 rounded-2xl bg-white shadow-lg flex items-center justify-center rotate-3 border border-stone-100 overflow-hidden">
-                <img src="./icon.png" alt="Logo" className="w-full h-full object-cover" />
+            <div className="w-16 h-16 rounded-2xl bg-white dark:bg-zinc-800 shadow-lg flex items-center justify-center rotate-3 border border-stone-100 dark:border-zinc-700 overflow-hidden">
+                <img src="./icon.png" alt="Logo" className="opacity-90 dark:opacity-80 w-full h-full object-cover" />
             </div>
             <div className="space-y-2">
-                <h2 className="text-xl font-semibold text-stone-800">
+                <h2 className="text-xl font-semibold text-stone-800 dark:text-zinc-100">
                     {mode === 'chat' ? 'OpenCowork Chat' : 'OpenCowork Work'}
                 </h2>
-                <p className="text-stone-500 text-sm max-w-xs">
+                <p className="text-stone-500 dark:text-zinc-400 text-sm max-w-xs">
                     {mode === 'work' && !workingDir
                         ? '请先选择一个工作目录来开始任务'
                         : mode === 'work' && workingDir

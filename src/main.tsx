@@ -4,14 +4,15 @@ import App from './App.tsx'
 import './index.css'
 import { I18nProvider } from './i18n/I18nContext'
 import { ThemeProvider } from './theme/ThemeContext'
+import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ThemeProvider>
-      <I18nProvider>
+    <I18nProvider>
+      <ThemeProvider defaultTheme="system" storageKey="opencowork-ui-theme">
         <App />
-      </I18nProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </I18nProvider>
   </React.StrictMode>,
 )
 

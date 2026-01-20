@@ -1,32 +1,53 @@
 import { createContext, useState, useEffect, ReactNode } from 'react';
 import { translations, Language, TranslationKey } from './translations';
 
+export type LanguageMode = Language | 'system';
+
 export interface I18nContextType {
     language: Language;
-    setLanguage: (lang: Language) => void;
+    languageMode: LanguageMode;
+    setLanguageMode: (mode: LanguageMode) => void;
     t: (key: TranslationKey) => string;
 }
 
 export const I18nContext = createContext<I18nContextType | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-    const [language, setLanguage] = useState<Language>(() => {
+    const [languageMode, setLanguageMode] = useState<LanguageMode>(() => {
         const saved = localStorage.getItem('opencowork-language');
         if (saved === 'en' || saved === 'zh') return saved;
-        // Detect browser language
-        return navigator.language.startsWith('zh') ? 'zh' : 'en';
+        return 'system';
     });
 
+    const [language, setLanguage] = useState<Language>('en');
+
     useEffect(() => {
-        localStorage.setItem('opencowork-language', language);
-    }, [language]);
+        const updateLanguage = () => {
+            if (languageMode === 'system') {
+                const sysLang = navigator.language.startsWith('zh') ? 'zh' : 'en';
+                setLanguage(sysLang);
+            } else {
+                setLanguage(languageMode);
+            }
+        };
+
+        updateLanguage();
+        localStorage.setItem('opencowork-language', languageMode);
+
+        // Listen for system language changes if needed (rare but good correctness)
+        const listener = () => {
+            if (languageMode === 'system') updateLanguage();
+        };
+        window.addEventListener('languagechange', listener);
+        return () => window.removeEventListener('languagechange', listener);
+    }, [languageMode]);
 
     const t = (key: TranslationKey): string => {
         return translations[language][key] || translations.en[key] || key;
     };
 
     return (
-        <I18nContext.Provider value={{ language, setLanguage, t }}>
+        <I18nContext.Provider value={{ language, languageMode, setLanguageMode, t }}>
             {children}
         </I18nContext.Provider>
     );
