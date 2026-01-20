@@ -83,7 +83,7 @@
 
   /* Prevent global scroll on main window too unless needed */
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground tracking-wide;
     overflow: hidden;
   }
 }
@@ -134,6 +134,7 @@
 
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {

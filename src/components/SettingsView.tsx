@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, Settings, FolderOpen, Server, Check, Plus, Trash2, Edit2, Zap, Eye } from 'lucide-react';
+import { X, Settings, FolderOpen, Server, Check, Plus, Trash2, Edit2, Zap, Eye, EyeOff } from 'lucide-react';
+import logo from '../assets/logo.png';
 import { SkillEditor } from './SkillEditor';
 
 interface SettingsViewProps {
@@ -28,7 +29,35 @@ interface ToolPermission {
     grantedAt: number;
 }
 
+interface TrustedHubProps {
+    title: string;
+    description: string;
+    icon?: React.ReactNode;
+}
+
+const TrustedHubPlaceholder = ({ title, description, icon }: TrustedHubProps) => (
+    <div className="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-lg opacity-60 mb-6">
+        <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
+                {icon ? (
+                    <div className="text-stone-500">{icon}</div>
+                ) : (
+                    <img src={logo} alt="Logo" className="w-6 h-6 object-contain" />
+                )}
+            </div>
+            <div>
+                <p className="text-sm font-medium text-stone-700">{title}</p>
+                <p className="text-xs text-stone-400">{description}</p>
+            </div>
+        </div>
+        <span className="text-xs text-stone-400 px-2 py-1 bg-stone-100 rounded">
+            开发中
+        </span>
+    </div>
+);
+
 export function SettingsView({ onClose }: SettingsViewProps) {
+    // ... (state code matches existing)
     const [config, setConfig] = useState<Config>({
         apiKey: '',
         apiUrl: 'https://api.minimaxi.com/anthropic',
@@ -37,9 +66,11 @@ export function SettingsView({ onClose }: SettingsViewProps) {
         networkAccess: false,
         shortcut: 'Alt+Space'
     });
+    // ... (other state hooks)
     const [saved, setSaved] = useState(false);
     const [activeTab, setActiveTab] = useState<'api' | 'folders' | 'mcp' | 'skills' | 'advanced'>('api');
     const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
+    const [showApiKey, setShowApiKey] = useState(false);
 
     // MCP State
     const [mcpConfig, setMcpConfig] = useState('');
@@ -48,11 +79,13 @@ export function SettingsView({ onClose }: SettingsViewProps) {
     // Skills State
     const [skills, setSkills] = useState<SkillInfo[]>([]);
     const [editingSkill, setEditingSkill] = useState<string | null>(null);
-    const [viewingSkill, setViewingSkill] = useState<boolean>(false); // New state for read-only mode
+    const [viewingSkill, setViewingSkill] = useState<boolean>(false);
     const [showSkillEditor, setShowSkillEditor] = useState(false);
 
     // Permissions State
     const [permissions, setPermissions] = useState<ToolPermission[]>([]);
+
+    // ... (keep all helper functions)
 
     const loadPermissions = () => {
         window.ipcRenderer.invoke('permissions:list').then(list => setPermissions(list as ToolPermission[]));
@@ -86,7 +119,6 @@ export function SettingsView({ onClose }: SettingsViewProps) {
         }
     }, [activeTab]);
 
-    // Shortcut recording handler
     const handleShortcutKeyDown = (e: React.KeyboardEvent) => {
         e.preventDefault();
         e.stopPropagation();
@@ -97,21 +129,17 @@ export function SettingsView({ onClose }: SettingsViewProps) {
         if (e.shiftKey) parts.push('Shift');
         if (e.metaKey) parts.push('Meta');
 
-        // Add the actual key (filter out modifier keys)
         const key = e.key;
         if (!['Control', 'Alt', 'Shift', 'Meta'].includes(key)) {
-            // Normalize key names
             const normalizedKey = key === ' ' ? 'Space' : key.length === 1 ? key.toUpperCase() : key;
             parts.push(normalizedKey);
         }
 
-        // Allow single function keys (F1-F12) or modifier + key combinations
         const isFunctionKey = /^F\d{1,2}$/.test(parts[parts.length - 1] || '');
         if (parts.length >= 1 && (isFunctionKey || parts.length >= 2)) {
             const newShortcut = parts.join('+');
             setConfig({ ...config, shortcut: newShortcut });
             setIsRecordingShortcut(false);
-            // Update the global shortcut via IPC
             window.ipcRenderer.invoke('shortcut:update', newShortcut);
         }
     };
@@ -131,7 +159,6 @@ export function SettingsView({ onClose }: SettingsViewProps) {
 
     const saveMcpConfig = async () => {
         try {
-            // Validate JSON
             JSON.parse(mcpConfig);
             await window.ipcRenderer.invoke('mcp:save-config', mcpConfig);
             setMcpSaved(true);
@@ -161,7 +188,7 @@ export function SettingsView({ onClose }: SettingsViewProps) {
 
     return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-stone-100 shrink-0">
                     <h2 className="text-lg font-semibold text-stone-800">设置</h2>
@@ -212,19 +239,29 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                 </div>
 
                 {/* Content */}
-                <div className="p-0 overflow-y-auto flex-1 bg-stone-50/30">
-                    <div className="p-5 space-y-5">
+                <div className="p-0 overflow-y-auto flex-1 bg-stone-50/30 flex flex-col">
+                    <div className={`p-5 min-h-0 ${['mcp', 'skills'].includes(activeTab) ? 'flex-1 flex flex-col' : 'space-y-5'}`}>
                         {activeTab === 'api' && (
                             <>
                                 <div>
                                     <label className="block text-xs font-medium text-stone-500 mb-1.5">API Key</label>
-                                    <input
-                                        type="password"
-                                        value={config.apiKey}
-                                        onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
-                                        placeholder="sk-..."
-                                        className="w-full bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            type={showApiKey ? "text" : "password"}
+                                            value={config.apiKey}
+                                            onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
+                                            placeholder="sk-..."
+                                            className="w-full bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 pr-9"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowApiKey(!showApiKey)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-600 transition-colors"
+                                            title={showApiKey ? "隐藏" : "显示"}
+                                        >
+                                            {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                                        </button>
+                                    </div>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-medium text-stone-500 mb-1.5">API URL</label>
@@ -296,8 +333,18 @@ export function SettingsView({ onClose }: SettingsViewProps) {
 
                         {activeTab === 'mcp' && (
                             <div className="h-full flex flex-col">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-xs font-medium text-stone-500">mcp.json 配置</span>
+                                <TrustedHubPlaceholder
+                                    title="OpenCowork Hub"
+                                    description="可信的 MCP 服务"
+                                />
+                                <div className="flex items-center justify-between mb-2 shrink-0">
+                                    <span
+                                        onClick={() => window.ipcRenderer.invoke('mcp:open-config-folder')}
+                                        className="text-xs font-medium text-orange-500 hover:text-orange-600 hover:underline cursor-pointer transition-colors flex items-center gap-1"
+                                        title="点击打开配置文件所在文件夹"
+                                    >
+                                        mcp.json 配置
+                                    </span>
                                     <button
                                         onClick={saveMcpConfig}
                                         className={`text-xs px-2 py-1 rounded transition-colors ${mcpSaved ? 'bg-green-100 text-green-600' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
@@ -306,23 +353,28 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                                         {mcpSaved ? '已保存' : '保存配置'}
                                     </button>
                                 </div>
-                                <textarea
-                                    value={mcpConfig}
-                                    onChange={(e) => setMcpConfig(e.target.value)}
-                                    className="w-full h-[320px] bg-white border border-stone-200 rounded-lg p-3 font-mono text-xs focus:outline-none focus:border-orange-500 resize-none text-stone-700"
-                                    placeholder='{ "mcpServers": { ... } }'
-                                    spellCheck={false}
-                                />
-                                <p className="text-[10px] text-stone-400 mt-2">
-                                    配置将保存在 ~/.opencowork/mcp.json。请确保 JSON 格式正确。
-                                </p>
-
+                                <div className="flex-1 flex flex-col min-h-0">
+                                    <textarea
+                                        value={mcpConfig}
+                                        onChange={(e) => setMcpConfig(e.target.value)}
+                                        className="w-full flex-1 bg-white border border-stone-200 rounded-lg p-3 font-mono text-xs focus:outline-none focus:border-orange-500 resize-none text-stone-700 mb-2"
+                                        placeholder='{ "mcpServers": { ... } }'
+                                        spellCheck={false}
+                                    />
+                                    <p className="text-[10px] text-stone-400 shrink-0 mb-0">
+                                        配置将保存在 ~/.opencowork/mcp.json。请确保 JSON 格式正确。
+                                    </p>
+                                </div>
                             </div>
                         )}
 
                         {activeTab === 'skills' && (
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between">
+                            <div className="h-full flex flex-col">
+                                <TrustedHubPlaceholder
+                                    title="OpenCowork Hub"
+                                    description="可信的 AI 技能"
+                                />
+                                <div className="flex items-center justify-between mb-3 shrink-0">
                                     <p className="text-sm text-stone-500">自定义 AI 技能</p>
                                     <button
                                         onClick={() => {
@@ -336,57 +388,59 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                                     </button>
                                 </div>
 
-                                {skills.length === 0 ? (
-                                    <div className="text-center py-8 text-stone-400 border-2 border-dashed border-stone-200 rounded-xl">
-                                        <p className="text-sm">暂无技能</p>
-                                    </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 gap-2">
-                                        {skills.map((skill) => (
-                                            <div
-                                                key={skill.id}
-                                                className="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-lg hover:border-orange-200 transition-colors group"
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${skill.isBuiltin ? 'bg-orange-50 text-orange-600' : 'bg-purple-50 text-purple-600'}`}>
-                                                        <Zap size={16} />
-                                                    </div>
-                                                    <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="text-sm font-medium text-stone-700">{skill.name}</p>
-                                                            {skill.isBuiltin && (
-                                                                <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded-full font-medium">内置</span>
-                                                            )}
+                                <div className="flex-1 overflow-y-auto min-h-0 mb-4 pr-1">
+                                    {skills.length === 0 ? (
+                                        <div className="text-center py-8 text-stone-400 border-2 border-dashed border-stone-200 rounded-xl">
+                                            <p className="text-sm">暂无技能</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 gap-2">
+                                            {skills.map((skill) => (
+                                                <div
+                                                    key={skill.id}
+                                                    className="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-lg hover:border-orange-200 transition-colors group"
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${skill.isBuiltin ? 'bg-orange-50 text-orange-600' : 'bg-purple-50 text-purple-600'}`}>
+                                                            <Zap size={16} />
                                                         </div>
-                                                        <p className="text-[10px] text-stone-400 font-mono truncate max-w-xs">{skill.path}</p>
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="text-sm font-medium text-stone-700">{skill.name}</p>
+                                                                {skill.isBuiltin && (
+                                                                    <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded-full font-medium">内置</span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-[10px] text-stone-400 font-mono truncate max-w-xs">{skill.path}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button
+                                                            onClick={() => {
+                                                                setEditingSkill(skill.id);
+                                                                setViewingSkill(skill.isBuiltin); // Set view-only if built-in
+                                                                setShowSkillEditor(true);
+                                                            }}
+                                                            className="p-1.5 text-stone-400 hover:text-blue-500 hover:bg-blue-50 rounded"
+                                                            title={skill.isBuiltin ? "查看" : "编辑"}
+                                                        >
+                                                            {skill.isBuiltin ? <Eye size={14} /> : <Edit2 size={14} />}
+                                                        </button>
+                                                        {!skill.isBuiltin && (
+                                                            <button
+                                                                onClick={() => deleteSkill(skill.id)}
+                                                                className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded"
+                                                                title="删除"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button
-                                                        onClick={() => {
-                                                            setEditingSkill(skill.id);
-                                                            setViewingSkill(skill.isBuiltin); // Set view-only if built-in
-                                                            setShowSkillEditor(true);
-                                                        }}
-                                                        className="p-1.5 text-stone-400 hover:text-blue-500 hover:bg-blue-50 rounded"
-                                                        title={skill.isBuiltin ? "查看" : "编辑"}
-                                                    >
-                                                        {skill.isBuiltin ? <Eye size={14} /> : <Edit2 size={14} />}
-                                                    </button>
-                                                    {!skill.isBuiltin && (
-                                                        <button
-                                                            onClick={() => deleteSkill(skill.id)}
-                                                            className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded"
-                                                            title="删除"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
 

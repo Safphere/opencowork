@@ -361,6 +361,17 @@ ipcMain.handle('mcp:save-config', async (_, content: string) => {
   }
 });
 
+ipcMain.handle('mcp:open-config-folder', async () => {
+  if (fs.existsSync(mcpConfigPath)) {
+    shell.showItemInFolder(mcpConfigPath);
+  } else {
+    // If file doesn't exist, try opening the directory
+    const dir = path.dirname(mcpConfigPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    shell.openPath(dir);
+  }
+});
+
 // Skills Management Handlers
 const skillsDir = path.join(os.homedir(), '.opencowork', 'skills');
 

@@ -37,21 +37,37 @@ export function MarkdownRenderer({ content, className = '', isDark = false }: Ma
                             }
 
                             // Standard Syntax Highlighting
+                            const language = match[1];
                             return (
-                                <div className="relative group my-4 rounded-lg overflow-hidden border border-stone-200 shadow-sm">
-                                    <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="my-5 rounded-xl border border-stone-200 bg-[#FAFAFA] dark:bg-[#1e1e1e] shadow-sm overflow-hidden">
+                                    {/* Mac-style Window Header */}
+                                    <div className="flex items-center justify-between px-4 py-2.5 bg-[#F5F5F4] dark:bg-[#2d2d2d] border-b border-stone-200 dark:border-stone-700">
+                                        <div className="flex items-center gap-2">
+                                            {/* Traffic Lights */}
+                                            <div className="flex gap-1.5">
+                                                <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]" />
+                                                <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]" />
+                                                <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]" />
+                                            </div>
+                                            {/* Language Label */}
+                                            <span className="ml-2 text-xs font-mono font-medium text-stone-500 select-none">
+                                                {language}
+                                            </span>
+                                        </div>
                                         <CopyButton text={codeContent} />
                                     </div>
+
                                     <SyntaxHighlighter
-                                        style={isDark ? vscDarkPlus : oneLight} // Simple light/dark check
-                                        language={match[1]}
+                                        style={isDark ? vscDarkPlus : oneLight}
+                                        language={language}
                                         PreTag="div"
                                         customStyle={{
                                             margin: 0,
-                                            padding: '1.5rem 1rem',
+                                            padding: '1.25rem',
                                             fontSize: '0.9rem',
-                                            lineHeight: '1.5',
-                                            background: isDark ? '#1e1e1e' : '#fafafa',
+                                            lineHeight: '1.6',
+                                            background: 'transparent', // Let container bg show through
+                                            border: 'none',
                                         }}
                                         {...props}
                                     >
@@ -179,10 +195,20 @@ function CopyButton({ text }: { text: string }) {
     return (
         <button
             onClick={handleCopy}
-            className="p-1.5 rounded-lg bg-white/90 shadow-sm border border-stone-200 hover:bg-white text-stone-500 hover:text-stone-800 transition-all"
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium text-stone-500 hover:text-stone-700 hover:bg-stone-200/50 transition-all"
             title="Copy code"
         >
-            {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+            {copied ? (
+                <>
+                    <Check size={13} className="text-green-600" />
+                    <span className="text-green-600">Copied</span>
+                </>
+            ) : (
+                <>
+                    <Copy size={13} />
+                    <span>Copy</span>
+                </>
+            )}
         </button>
     );
 }

@@ -216,14 +216,14 @@ ${workingDirContext}
 
             try {
                 // Pass abort signal to the API for true interruption
-                const stream = await this.anthropic.messages.create({
+                const stream: any = await this.anthropic.messages.create({
                     model: this.model,
-                    max_tokens: 4096,
+                    max_tokens: 131072,
                     system: systemPrompt,
                     messages: this.history,
                     stream: true,
                     tools: tools
-                }, {
+                } as any, {
                     signal: this.abortController?.signal
                 });
 
@@ -398,7 +398,8 @@ ${skillInfo.instructions}
                                 // Check if input has parse error
                                 const inputObj = toolUse.input as Record<string, unknown>;
                                 if (inputObj && inputObj.error === "Invalid JSON input") {
-                                    result = `Error: The tool input was not valid JSON. Please fix the JSON format and retry. Raw input: ${inputObj.raw}`;
+                                    // Provide simpler error, just raw info
+                                    result = `Error: The tool input was not valid JSON. Please fix the JSON format and retry. Raw input length: ${(inputObj.raw as string)?.length || 0}`;
                                 }
                             } catch (toolErr: unknown) {
                                 result = `Error executing tool: ${(toolErr as Error).message}`;

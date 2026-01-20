@@ -453,7 +453,7 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
             </div>
 
             {/* Bottom Input */}
-            <div className="border-t border-stone-200 bg-white p-4 shadow-lg shadow-stone-200/50">
+            <div className="border-t border-stone-200 bg-white px-4 pt-3 pb-1 shadow-lg shadow-stone-200/50">
                 <div className="max-w-xl mx-auto">
                     {/* Image Preview Area */}
                     {images.length > 0 && (
@@ -565,7 +565,7 @@ export function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOp
                         </div>
                     </form>
 
-                    <p className="text-[11px] text-stone-400 text-center mt-1.5 mb-1">
+                    <p className="text-[11px] text-stone-400 text-center mt-1.5">
                         AI 可能会出错，请仔细核查重要信息
                     </p>
                 </div>
