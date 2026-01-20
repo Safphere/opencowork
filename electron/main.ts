@@ -141,7 +141,8 @@ app.whenReady().then(() => {
 // IPC Handlers
 
 ipcMain.handle('agent:send-message', async (_event, message: string | { content: string, images: string[] }) => {
-  if (!agent) throw new Error('Agent not initialized')
+  console.log('[Main] agent:send-message received');
+  if (!agent) throw new Error('Agent not initialized - Check API Key settings')
   return await agent.processUserMessage(message)
 })
 

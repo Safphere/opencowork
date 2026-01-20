@@ -54,6 +54,39 @@ Supports any Agent-capable model (MiniMax, Claude, GPT, etc.) with no vendor loc
 
 ---
 
+## Installation
+
+### Download
+
+Download the latest release for your platform from the [Releases](https://github.com/Safphere/opencowork/releases) page:
+
+- **Windows:** `.exe` installer or portable version
+- **macOS:** `.dmg` installer
+- **Linux:** `.AppImage` or `.deb` package
+
+### Build from Source
+
+**Prerequisites:** Node.js v18+ (v20 LTS recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/Safphere/opencowork.git
+cd opencowork
+
+# Install dependencies
+npm install
+
+# Run in development mode
+npm run dev
+
+# Build for production
+npm run build
+```
+
+Build outputs are located in the `release/` directory.
+
+---
+
 ## Core Features
 
 ### Skills System

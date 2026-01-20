@@ -51,10 +51,21 @@ function App() {
       const result = await window.ipcRenderer.invoke('agent:send-message', msg) as { error?: string } | undefined;
       if (result?.error) {
         console.error(result.error);
+        alert(`Error: ${result.error}`); // Simple alert for now
         setIsProcessing(false);
       }
     } catch (err) {
       console.error(err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      
+      // If it's the "Agent not initialized" error, give a helpful message
+      if (errorMsg.includes('Agent not initialized')) {
+        alert('Please configure your API Key in Settings first.');
+        setShowSettings(true);
+      } else {
+        alert(`Error: ${errorMsg}`);
+      }
+      
       setIsProcessing(false);
     }
   };

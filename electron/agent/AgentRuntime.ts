@@ -140,12 +140,21 @@ export class AgentRuntime {
             const err = error as { status?: number; message?: string };
             console.error('Agent Loop Error:', error);
 
+            let errorMessage = err.message || 'An unknown error occurred';
+
             // [Fix] Handle MiniMax/provider sensitive content errors gracefully
             if (err.status === 500 && (err.message?.includes('sensitive') || JSON.stringify(error).includes('1027'))) {
-                this.broadcast('agent:error', 'AI Provider Error: The generated content was flagged as sensitive and blocked by the provider.');
-            } else {
-                this.broadcast('agent:error', err.message || 'An unknown error occurred');
+                errorMessage = 'AI Provider Error: The generated content was flagged as sensitive and blocked by the provider.';
             }
+
+            this.broadcast('agent:error', errorMessage);
+
+            // Add error to history so user sees it in the UI
+            this.history.push({ 
+                role: 'assistant', 
+                content: `❌ **Error**: ${errorMessage}\n\nPlease check your settings (API Key, Model, URL) or try again.` 
+            });
+            this.notifyUpdate();
         } finally {
             this.isProcessing = false;
             this.abortController = null;
