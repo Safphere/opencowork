@@ -98,6 +98,42 @@ Special thanks to our partners for their support:
 
 ---
 
+## Installation
+
+### ⚠️ macOS Users - Important Notice
+
+**The app may show as "damaged" on first launch**
+
+**Why:** macOS blocks unsigned apps from the internet. This app is not signed with an official Apple developer certificate (requires paid account).
+
+**Solutions (choose one):**
+
+**Method 1: Right-click to Open (Recommended)**
+```
+Right-click OpenCowork.app → Select "Open" → Click "Open"
+```
+
+**Method 2: System Settings**
+```
+System Settings → Privacy & Security → Click "Open Anyway"
+```
+
+**Method 3: Command Line (if already installed)**
+```bash
+sudo xattr -rd com.apple.quarantine /Applications/OpenCowork.app
+```
+
+> **Safety Guarantee:** The app is completely safe and open-source:
+> - View source code: [github.com/Safphere/opencowork](https://github.com/Safphere/opencowork)
+> - Build it yourself: `npm install && npm run build`
+> - Join our community to ask other users
+
+### Windows and Linux
+
+Simply download and install the appropriate package for your platform.
+
+---
+
 ## Documentation
 
 - [Configuration Guide](./docs/configuration.md)
