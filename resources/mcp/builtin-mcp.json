@@ -1,0 +1,115 @@
+{
+  "mcpServers": {
+    "glm-mcp-server": {
+      "name": "glm-mcp-server",
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@z_ai/mcp-server"],
+      "env": {
+        "Z_AI_API_KEY": "{{GLM_API_KEY}}",
+        "Z_AI_MODE": "ZHIPU"
+      },
+      "source": "builtin",
+      "disabled": false
+    },
+    "glm-web-search": {
+      "name": "glm-web-search",
+      "type": "http",
+      "url": "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
+      "headers": {
+        "Authorization": "Bearer {{GLM_API_KEY}}"
+      },
+      "source": "builtin",
+      "disabled": false
+    },
+    "glm-web-reader": {
+      "name": "glm-web-reader",
+      "type": "http",
+      "url": "https://open.bigmodel.cn/api/mcp/web_reader/mcp",
+      "headers": {
+        "Authorization": "Bearer {{GLM_API_KEY}}"
+      },
+      "source": "builtin",
+      "disabled": false
+    },
+    "glm-zread": {
+      "name": "glm-zread",
+      "type": "http",
+      "url": "https://open.bigmodel.cn/api/mcp/zread/mcp",
+      "headers": {
+        "Authorization": "Bearer {{GLM_API_KEY}}"
+      },
+      "source": "builtin",
+      "disabled": false
+    },
+    "zai-mcp-server": {
+      "name": "zai-mcp-server",
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@z_ai/mcp-server"],
+      "env": {
+        "Z_AI_API_KEY": "{{ZAI_API_KEY}}",
+        "Z_AI_MODE": "ZAI"
+      },
+      "source": "builtin",
+      "disabled": false
+    },
+    "zai-web-search": {
+      "name": "zai-web-search",
+      "type": "http",
+      "url": "https://api.z.ai/api/mcp/web_search_prime/mcp",
+      "headers": {
+        "Authorization": "Bearer {{ZAI_API_KEY}}"
+      },
+      "source": "builtin",
+      "disabled": false
+    },
+    "zai-web-reader": {
+      "name": "zai-web-reader",
+      "type": "http",
+      "url": "https://api.z.ai/api/mcp/web_reader/mcp",
+      "headers": {
+        "Authorization": "Bearer {{ZAI_API_KEY}}"
+      },
+      "source": "builtin",
+      "disabled": false
+    },
+    "zai-zread": {
+      "name": "zai-zread",
+      "type": "http",
+      "url": "https://api.z.ai/api/mcp/zread/mcp",
+      "headers": {
+        "Authorization": "Bearer {{ZAI_API_KEY}}"
+      },
+      "source": "builtin",
+      "disabled": false
+    },
+    "minimax-cn-mcp-server": {
+      "name": "MiniMax-CN",
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["minimax-coding-plan-mcp", "-y"],
+      "env": {
+        "MINIMAX_API_KEY": "{{MINIMAX_CN_API_KEY}}",
+        "MINIMAX_API_HOST": "https://api.minimaxi.com"
+      },
+      "source": "builtin",
+      "disabled": false
+    },
+    "minimax-intl-mcp-server": {
+      "name": "MiniMax-INTL",
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["minimax-coding-plan-mcp", "-y"],
+      "env": {
+        "MINIMAX_API_KEY": "{{MINIMAX_INTL_API_KEY}}",
+        "MINIMAX_API_HOST": "https://api.minimax.io"
+      },
+      "source": "builtin",
+      "disabled": false
+    }
+  },
+  "version": "1.0.2",
+  "lastUpdated": "2025-01-21",
+  "notes": "Updated API endpoints and npm package names for ZAI and MiniMax based on official documentation"
+}

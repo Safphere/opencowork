@@ -49,7 +49,8 @@ Supports any Agent-capable model (MiniMax, Claude, GPT, etc.) with no vendor loc
 - **Model Agnostic** — Works with various Agent models
 - **File Operations** — Read, write, create, and modify local files
 - **Terminal Control** — Execute command-line operations
-- **Skill Extensions** — Extend via Skills and MCP protocol
+- **Multi-Session** — Manage multiple conversation contexts simultaneously
+- **Skill Extensions** — Extend via Skills and **MCP Protocol**
 - **Cross-Platform** — Windows, macOS, Linux
 
 ---
@@ -58,7 +59,11 @@ Supports any Agent-capable model (MiniMax, Claude, GPT, etc.) with no vendor loc
 
 ### Skills System
 
-Built-in common skills with custom extension support.
+Built-in **11 Skills** and **10 MCP Services** (featuring **Coding Plan** services from MiniMax, Zhipu, etc.), enabling advanced capabilities like **Web Search**, **Web Reader**, and **Image Understanding** out of the box.
+
+> Works with **ClaudeCode compatible interfaces** (e.g., Anthropic format) rather than standard OpenAI SDKs.
+
+Fully extensible via standard **MCP Protocol** and custom Skills.
 
 <p align="center">
   <img src="https://i.meee.com.tw/vAfes9C.png" width="400" alt="Skills">
@@ -66,7 +71,7 @@ Built-in common skills with custom extension support.
 
 ### Floating Ball
 
-Quick access via `Alt+Space` hotkey.
+Quick access via `Alt+Space` hotkey (customizable in Settings). Now with enhanced UI, smoother animations, and optimized performance.
 
 <p align="center">
   <img src="https://i.meee.com.tw/iKBLLFA.gif" width="400" alt="Floating Ball">
@@ -76,17 +81,16 @@ Quick access via `Alt+Space` hotkey.
 
 ## Partners
 
-Thanks to **MiniMax** for supporting this project.
+Special thanks to our partners for their support:
 
-<p align="center">
-  <img src="https://i.meee.com.tw/vWOPQjd.png" height="50" alt="MiniMax">
-</p>
+<div align="center">
 
-<p align="center">
-  <a href="https://platform.minimaxi.com/subscribe/coding-plan?code=HhNfBTQDNq&source=link">
-    <img src="https://i.meee.com.tw/5iu8MHC.png" width="220" alt="MiniMax Coding Plan">
-  </a>
-</p>
+| **MiniMax (CN)** | **MiniMax (Intl)** | **Zhipu AI** | **ZAI (Intl)** |
+| :---: | :---: | :---: | :---: |
+| <img src="https://i.meee.com.tw/vWOPQjd.png" height="40" alt="MiniMax Logo"> | <img src="https://i.meee.com.tw/vWOPQjd.png" height="40" alt="MiniMax Intl Logo"> | <img src="./public/partners/zhipu_logo.png" height="40" alt="Zhipu Logo"> | <img src="./public/partners/zai_logo.svg" height="40" alt="ZAI Logo"> |
+| <a href="https://platform.minimaxi.com/subscribe/coding-plan?code=HhNfBTQDNq&source=link"><img src="https://i.meee.com.tw/5iu8MHC.png" height="200" alt="MiniMax CN Poster"></a> | <a href="https://platform.minimax.io/subscribe/coding-plan?code=DQlmOtIjX6&source=link"><img src="./public/partners/minimax_intl_poster.png" height="200" alt="MiniMax Intl Poster"></a> | <a href="https://www.bigmodel.cn/glm-coding?ic=QBPPSNQ5JT"><img src="./public/partners/zhipu_poster.png" height="200" alt="Zhipu Poster"></a> | <a href="https://z.ai/subscribe?ic=9GTHAGUUX1"><img src="./public/partners/zai_poster.png" height="200" alt="ZAI Poster"></a> |
+
+</div>
 
 <p align="center">
   <sub>🤝 We welcome partnerships with AI model providers to advance the Agent ecosystem together. <a href="mailto:a976466014@gmail.com">Contact Us</a></sub>
@@ -105,7 +109,7 @@ Thanks to **MiniMax** for supporting this project.
 
 <p align="center">
   <img src="https://github.com/Safphere/.github/raw/main/profile/src/wechat.svg" width="280" alt="Safphere"><br>
-  <img src="https://i.meee.com.tw/ZvKkdrT.jpg" width="180" alt="Discussion Group">
+  <img src="./public/discussion_group.png" width="180" alt="Discussion Group">
 </p>
 
 ---

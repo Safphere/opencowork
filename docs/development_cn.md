@@ -65,3 +65,11 @@ npm run build
 ```
 
 构建产物将输出到 `release` 目录。
+
+## MCP 服务器开发
+
+关于使用 MCP 服务器扩展功能的详细信息，请参阅 `resources/skills/mcp-builder/` 目录，其中包含文档和示例项目。
+
+## macOS 构建注意事项
+
+在构建 macOS 版本时，请确保 `electron-builder.json5` 中正确配置了 `icon.icns` 文件的路径，以保证 DMG 安装包中能正确显示应用图标。

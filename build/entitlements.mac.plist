@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- JIT Compilation -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Unsigned Executable Memory -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Library Validation -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Network Access (Required for API calls) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Network Server (Optional, for local development) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- File Access (User selected files) -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- File Access (Files selected by user) -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+
+    <!-- App Transport Security (Allow HTTP for development) -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+      <key>NSAllowsArbitraryLoads</key>
+      <true/>
+      <key>NSAllowsLocalNetworking</key>
+      <true/>
+    </dict>
+
+    <!-- Audio Access (For voice features if needed) -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- Camera Access (If needed for future features) -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+  </dict>
+</plist>

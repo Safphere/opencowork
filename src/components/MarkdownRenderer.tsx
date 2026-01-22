@@ -20,7 +20,10 @@ interface MarkdownRendererProps {
     isDark?: boolean;
 }
 
+import { useI18n } from '../i18n/I18nContext';
+
 export function MarkdownRenderer({ content, className = '', isDark = false }: MarkdownRendererProps) {
+    const { t } = useI18n();
     return (
         <div className={`prose ${isDark ? 'prose-invert' : 'prose-stone'} max-w-none ${className}`}>
             <ReactMarkdown
@@ -41,7 +44,7 @@ export function MarkdownRenderer({ content, className = '', isDark = false }: Ma
                             return (
                                 <div className="my-5 rounded-xl border border-stone-200 bg-[#FAFAFA] dark:bg-[#1e1e1e] shadow-sm overflow-hidden">
                                     {/* Mac-style Window Header */}
-                                    <div className="flex items-center justify-between px-4 py-2.5 bg-[#F5F5F4] dark:bg-[#2d2d2d] border-b border-stone-200 dark:border-stone-700">
+                                    <div className="flex items-center justify-between px-4 py-2.5 bg-[#F5F5F4] dark:bg-[#1e1e1e] border-b border-stone-200 dark:border-zinc-800">
                                         <div className="flex items-center gap-2">
                                             {/* Traffic Lights */}
                                             <div className="flex gap-1.5">
@@ -85,9 +88,9 @@ export function MarkdownRenderer({ content, className = '', isDark = false }: Ma
                         if (isFilePath) {
                             return (
                                 <code
-                                    className={`${className} px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-mono text-sm border border-blue-200 cursor-pointer hover:bg-blue-100 transition-colors`}
+                                    className={`${className} px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-mono text-sm border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors`}
                                     onClick={() => window.ipcRenderer.invoke('shell:open-path', codeText)}
-                                    title="点击在文件管理器中打开"
+                                    title={t('openInFileManager')}
                                     {...props}
                                 >
                                     📁 {children}
@@ -97,7 +100,7 @@ export function MarkdownRenderer({ content, className = '', isDark = false }: Ma
 
                         return (
                             <code
-                                className={`${className} px-1.5 py-0.5 rounded-md bg-stone-100 text-stone-800 font-mono text-sm border border-stone-200`}
+                                className={`${className} px-1.5 py-0.5 rounded-md bg-stone-100 dark:bg-zinc-800 text-stone-800 dark:text-zinc-200 font-mono text-sm border border-stone-200 dark:border-zinc-700`}
                                 {...props}
                             >
                                 {children}
@@ -107,7 +110,7 @@ export function MarkdownRenderer({ content, className = '', isDark = false }: Ma
                     // Improved Table Styling
                     table({ children }) {
                         return (
-                            <div className="overflow-x-auto my-6 border border-stone-200 rounded-xl shadow-sm">
+                            <div className="overflow-x-auto my-6 border border-stone-200 dark:border-zinc-800 rounded-xl shadow-sm">
                                 <table className="w-full text-left border-collapse text-sm">
                                     {children}
                                 </table>
@@ -115,44 +118,44 @@ export function MarkdownRenderer({ content, className = '', isDark = false }: Ma
                         );
                     },
                     thead({ children }) {
-                        return <thead className="bg-stone-50 text-stone-700">{children}</thead>;
+                        return <thead className="bg-stone-50 dark:bg-zinc-800/50 text-stone-700 dark:text-zinc-200">{children}</thead>;
                     },
                     th({ children }) {
-                        return <th className="px-4 py-3 font-semibold border-b border-stone-200">{children}</th>;
+                        return <th className="px-4 py-3 font-semibold border-b border-stone-200 dark:border-zinc-800">{children}</th>;
                     },
                     td({ children }) {
-                        return <td className="px-4 py-3 border-b border-stone-100 text-stone-600">{children}</td>;
+                        return <td className="px-4 py-3 border-b border-stone-100 dark:border-zinc-800/50 text-stone-600 dark:text-zinc-400">{children}</td>;
                     },
                     // Improved Spacing for Typography
                     p({ children }) {
-                        return <p className="mb-4 leading-7 text-stone-700 last:mb-0">{children}</p>;
+                        return <p className="mb-4 leading-7 text-stone-700 dark:text-zinc-300 last:mb-0">{children}</p>;
                     },
                     ul({ children }) {
-                        return <ul className="list-disc pl-6 mb-4 space-y-1 text-stone-700 marker:text-stone-400">{children}</ul>;
+                        return <ul className="list-disc pl-6 mb-4 space-y-1 text-stone-700 dark:text-zinc-300 marker:text-stone-400 dark:marker:text-zinc-600">{children}</ul>;
                     },
                     ol({ children }) {
-                        return <ol className="list-decimal pl-6 mb-4 space-y-1 text-stone-700 marker:text-stone-400">{children}</ol>;
+                        return <ol className="list-decimal pl-6 mb-4 space-y-1 text-stone-700 dark:text-zinc-300 marker:text-stone-400 dark:marker:text-zinc-600">{children}</ol>;
                     },
                     li({ children }) {
                         return <li className="pl-1">{children}</li>;
                     },
                     h1({ children }) {
-                        return <h1 className="text-2xl font-bold mt-8 mb-4 text-stone-900 pb-2 border-b border-stone-100">{children}</h1>;
+                        return <h1 className="text-2xl font-bold mt-8 mb-4 text-stone-900 dark:text-zinc-100 pb-2 border-b border-stone-100 dark:border-zinc-800 text-shadow-sm">{children}</h1>;
                     },
                     h2({ children }) {
-                        return <h2 className="text-lg font-bold mt-6 mb-3 text-stone-900 flex items-center gap-2">
-                            <span className="w-1 h-5 bg-orange-500 rounded-full inline-block"></span>
+                        return <h2 className="text-lg font-bold mt-6 mb-3 text-stone-900 dark:text-zinc-100 flex items-center gap-2">
+                            <span className="w-1 h-5 bg-orange-500 rounded-full inline-block shadow-sm"></span>
                             {children}
                         </h2>;
                     },
                     h3({ children }) {
-                        return <h3 className="text-base font-semibold mt-4 mb-2 text-stone-800">{children}</h3>;
+                        return <h3 className="text-base font-semibold mt-4 mb-2 text-stone-800 dark:text-zinc-200">{children}</h3>;
                     },
                     blockquote({ children }) {
-                        return <blockquote className="border-l-4 border-orange-200 pl-4 py-1 my-4 text-stone-600 italic bg-orange-50/30 rounded-r-lg">{children}</blockquote>;
+                        return <blockquote className="border-l-4 border-orange-200 dark:border-orange-500/30 pl-4 py-2 my-4 text-stone-600 dark:text-zinc-400 italic bg-orange-50/30 dark:bg-orange-900/10 rounded-r-lg">{children}</blockquote>;
                     },
                     a({ href, children }) {
-                        return <a href={href} className="text-orange-600 hover:text-orange-700 underline decoration-orange-300 hover:decoration-orange-600 underline-offset-2 transition-all font-medium" target="_blank" rel="noopener noreferrer">{children}</a>
+                        return <a href={href} className="text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 underline decoration-orange-300 dark:decoration-orange-500/30 hover:decoration-orange-600 underline-offset-2 transition-all font-medium" target="_blank" rel="noopener noreferrer">{children}</a>
                     }
                 }}
             >
@@ -184,6 +187,7 @@ function MermaidDiagram({ code, isDark }: { code: string, isDark: boolean }) {
 }
 
 function CopyButton({ text }: { text: string }) {
+    const { t } = useI18n();
     const [copied, setCopied] = useState(false);
 
     const handleCopy = () => {
@@ -196,17 +200,17 @@ function CopyButton({ text }: { text: string }) {
         <button
             onClick={handleCopy}
             className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium text-stone-500 hover:text-stone-700 hover:bg-stone-200/50 transition-all"
-            title="Copy code"
+            title={t('copyCode')}
         >
             {copied ? (
                 <>
                     <Check size={13} className="text-green-600" />
-                    <span className="text-green-600">Copied</span>
+                    <span className="text-green-600">{t('copied')}</span>
                 </>
             ) : (
                 <>
                     <Copy size={13} />
-                    <span>Copy</span>
+                    <span>{t('copy')}</span>
                 </>
             )}
         </button>

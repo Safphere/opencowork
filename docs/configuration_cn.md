@@ -27,7 +27,9 @@ OpenCowork 开箱即用，默认配置如下：
 
 您也可以通过项目根目录下的 `.env` 文件进行配置（仅限开发环境）：
 
-```env
-VITE_API_URL=https://your-api-url.com
 VITE_MODEL_NAME=your-model-name
 ```
+
+## MCP 配置
+
+应用使用 `mcp.json` (或 `mcp_storage.json`) 来定义可用的 MCP 服务器。这允许您通过外部工具和数据源来扩展 AI 的能力。

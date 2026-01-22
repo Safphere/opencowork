@@ -65,3 +65,11 @@ npm run build
 ```
 
 Build artifacts will be output to the `release` directory.
+
+## MCP Server Development
+
+For details on extending functionality with MCP servers, please refer to the `resources/skills/mcp-builder/` directory, which contains documentation and example projects.
+
+## Note on macOS Build
+
+When building for macOS, ensure `electron-builder.json5` is correctly configured with the path to your `icon.icns` file to ensure the application icon displays correctly in the DMG installer.

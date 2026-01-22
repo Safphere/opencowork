@@ -49,7 +49,8 @@ OpenCowork 允许 AI 操作本地文件系统和终端，使用前请注意：
 - **模型通用** — 支持各类 Agent 模型
 - **文件操作** — 读写、创建、修改本地文件
 - **终端控制** — 执行命令行操作
-- **技能扩展** — 通过 Skill 和 MCP 协议扩展功能
+- **多会话支持** — 同时管理多个对话上下文
+- **技能扩展** — 通过 Skill 和 **MCP 协议** 扩展功能
 - **跨平台** — 支持 Windows、macOS、Linux
 
 ---
@@ -58,7 +59,11 @@ OpenCowork 允许 AI 操作本地文件系统和终端，使用前请注意：
 
 ### 技能系统
 
-内置常用技能，支持自定义扩展。
+内置 **11 个 Skill** 和 **10 个 MCP 服务**（整合了 MiniMax、智谱等 **Coding Plan** 服务），开箱即用，支持 **联网搜索**、**网页阅读**、**理解图像** 等基础扩展功能。
+
+> 本项目暂时支持 **ClaudeCode 兼容接口**（如 Anthropic 格式），而非标准 OpenAI SDK 接口。
+
+支持标准 **MCP 协议** 和自定义 Skill 扩展。
 
 <p align="center">
   <img src="https://i.meee.com.tw/vAfes9C.png" width="400" alt="Skills">
@@ -66,7 +71,7 @@ OpenCowork 允许 AI 操作本地文件系统和终端，使用前请注意：
 
 ### 悬浮球
 
-通过 `Alt+Space` 快捷键快速唤起。
+通过 `Alt+Space` 快捷键快速唤起（支持在设置中自定义）。全新升级的 UI 设计，流畅的动画效果，以及更优的性能体验。
 
 <p align="center">
   <img src="https://i.meee.com.tw/iKBLLFA.gif" width="400" alt="Floating Ball">
@@ -76,17 +81,16 @@ OpenCowork 允许 AI 操作本地文件系统和终端，使用前请注意：
 
 ## 合作伙伴
 
-感谢 **MiniMax** 对本项目的支持。
+特别感谢以下合作伙伴的支持：
 
-<p align="center">
-  <img src="https://i.meee.com.tw/vWOPQjd.png" height="50" alt="MiniMax">
-</p>
+<div align="center">
 
-<p align="center">
-  <a href="https://platform.minimaxi.com/subscribe/coding-plan?code=HhNfBTQDNq&source=link">
-    <img src="https://i.meee.com.tw/5iu8MHC.png" width="220" alt="MiniMax Coding Plan">
-  </a>
-</p>
+| **MiniMax (国内版)** | **MiniMax (International)** | **智谱 AI (Zhipu AI)** | **ZAI (International)** |
+| :---: | :---: | :---: | :---: |
+| <img src="https://i.meee.com.tw/vWOPQjd.png" height="40" alt="MiniMax Logo"> | <img src="https://i.meee.com.tw/vWOPQjd.png" height="40" alt="MiniMax Intl Logo"> | <img src="./public/partners/zhipu_logo.png" height="40" alt="Zhipu Logo"> | <img src="./public/partners/zai_logo.svg" height="40" alt="ZAI Logo"> |
+| <a href="https://platform.minimaxi.com/subscribe/coding-plan?code=HhNfBTQDNq&source=link"><img src="https://i.meee.com.tw/5iu8MHC.png" height="200" alt="MiniMax CN Poster"></a> | <a href="https://platform.minimax.io/subscribe/coding-plan?code=DQlmOtIjX6&source=link"><img src="./public/partners/minimax_intl_poster.png" height="200" alt="MiniMax Intl Poster"></a> | <a href="https://www.bigmodel.cn/glm-coding?ic=QBPPSNQ5JT"><img src="./public/partners/zhipu_poster.png" height="200" alt="Zhipu Poster"></a> | <a href="https://z.ai/subscribe?ic=9GTHAGUUX1"><img src="./public/partners/zai_poster.png" height="200" alt="ZAI Poster"></a> |
+
+</div>
 
 <p align="center">
   <sub>🤝 我们期待与更多 AI 模型厂商建立合作，共同推进 Agent 生态发展。<a href="mailto:a976466014@gmail.com">联系我们</a></sub>
@@ -105,7 +109,7 @@ OpenCowork 允许 AI 操作本地文件系统和终端，使用前请注意：
 
 <p align="center">
   <img src="https://github.com/Safphere/.github/raw/main/profile/src/wechat.svg" width="280" alt="Safphere"><br>
-  <img src="https://i.meee.com.tw/ZvKkdrT.jpg" width="180" alt="讨论群">
+  <img src="./public/discussion_group.png" width="180" alt="讨论群">
 </p>
 
 ---

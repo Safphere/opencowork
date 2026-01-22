@@ -28,6 +28,7 @@ export class AgentRuntime {
     private artifacts: { path: string; name: string; type: string }[] = [];
 
     private model: string;
+    private lastProcessTime: number = 0;
 
     constructor(apiKey: string, window: BrowserWindow, model: string = 'claude-3-5-sonnet-20241022', apiUrl: string = 'https://api.anthropic.com') {
         this.anthropic = new Anthropic({ apiKey, baseURL: apiUrl });
@@ -49,12 +50,30 @@ export class AgentRuntime {
     public async initialize() {
         console.log('Initializing AgentRuntime...');
         try {
-            await this.skillManager.loadSkills();
-            await this.mcpService.loadClients();
+            // Parallelize loading for faster startup
+            await Promise.all([
+                this.skillManager.loadSkills(),
+                this.mcpService.loadClients()
+            ]);
             console.log('AgentRuntime initialized (Skills & MCP loaded)');
         } catch (error) {
             console.error('Failed to initialize AgentRuntime:', error);
         }
+    }
+
+    // Hot-Swap Configuration without reloading context
+    public updateConfig(model: string, apiUrl?: string, apiKey?: string) {
+        if (this.model === model && !apiUrl && !apiKey) return;
+
+        this.model = model;
+        // Re-create Anthropic client if credentials change
+        if (apiUrl || apiKey) {
+            this.anthropic = new Anthropic({
+                apiKey: apiKey || this.anthropic.apiKey,
+                baseURL: apiUrl || this.anthropic.baseURL
+            });
+        }
+        console.log(`[Agent] Hot-Swap: Model updated to ${model}`);
     }
 
     public removeWindow(win: BrowserWindow) {
@@ -85,9 +104,18 @@ export class AgentRuntime {
     }
 
     public async processUserMessage(input: string | { content: string, images: string[] }) {
+        // Auto-recover from stuck state if > 60 seconds have passed since start
         if (this.isProcessing) {
-            throw new Error('Agent is already processing a message');
+            if (Date.now() - this.lastProcessTime > 60000) {
+                console.warn('[AgentRuntime] Detected stale processing state (60s+). Auto-resetting.');
+                this.isProcessing = false;
+                this.abortController = null;
+            } else {
+                throw new Error('Agent is already processing a message');
+            }
         }
+
+        this.lastProcessTime = Date.now();
 
         this.isProcessing = true;
         this.abortController = new AbortController();
@@ -147,6 +175,13 @@ export class AgentRuntime {
                 this.broadcast('agent:error', err.message || 'An unknown error occurred');
             }
         } finally {
+            // Force reload MCP clients on next run if we had an error, to ensure fresh connection
+            if (this.isProcessing && this.abortController?.signal.aborted) {
+                // Was aborted, do nothing special
+            } else {
+                // For now, we don't force reload every time, but we ensure state is clear
+            }
+
             this.isProcessing = false;
             this.abortController = null;
             this.notifyUpdate();
@@ -181,34 +216,59 @@ export class AgentRuntime {
                 : '\n\nNote: No working directory has been selected yet. Ask the user to select a folder first.';
 
             const skillsDir = os.homedir() + '/.opencowork/skills';
-            const systemPrompt = `You are OpenCowork, an advanced AI agent capable of managing files, executing complex tasks, and assisting the user.
-            
-            TOOL USAGE:
-            - Use 'read_file', 'write_file', and 'list_dir' for file operations.
-            - Use 'run_command' to execute shell commands, Python scripts, npm commands, etc.
-            - You can use skills defined in ~/.opencowork/skills/ - when a skill is loaded, follow its instructions immediately.
-            - Skills with a 'core/' directory (like slack-gif-creator) have Python modules you can import directly.
-              Example: Set PYTHONPATH to the skill directory and run your script.
-            - You can access external tools provided by MCP servers (prefixed with server name).
+            const systemPrompt = `
+# OpenCowork Assistant System
 
-SKILLS DIRECTORY: ${skillsDir}
-${workingDirContext}
+## Role Definition
+You are OpenCowork, an advanced AI desktop assistant designed for efficient task execution, file management, coding assistance, and research. You operate in a secure local environment with controlled access to user-selected directories and specialized tools.
 
-            PLANNING:
-            - For complex requests, you MUST start with a <plan> block.
-            - Inside <plan>, list the steps you will take as <task> items.
-            - Mark completed tasks with [x] and pending with [ ] if you update the plan.
-            - Example:
-              <plan>
-                <task>Analyze requirements</task>
-                <task>Create implementation plan</task>
-                <task>Write code</task>
-              </plan>
-            
-            IMPORTANT:
-            - If you use a skill/tool that provides instructions or context (like web-artifacts-builder), you MUST proceed to the NEXT logical step immediately in the subsequent turn. Do NOT stop to just "acknowledge" receipt of instructions.
-            - When using skills with core/ modules, create a Python script in the working directory that imports from the skill's core (add skill dir to PYTHONPATH).
-            - Provide clear, concise updates.`;
+## Core Behavioral Principles
+
+### Communication Style
+- **Direct & Professional**: Be concise and purposeful. Avoid unnecessary pleasantries.
+- **Execution-Focused**: Prioritize completing tasks efficiently over extensive discussion.
+- **Proactive**: Verify tool availability before relying on them.
+
+### Response Format
+- Use Markdown for all structured content
+- Prefer clear prose over bullet points for narrative content
+- Use bullet points only for lists, summaries, or when explicitly requested
+
+## Task Execution Guidelines
+
+### Planning & Execution
+**Internal Process (Not Visible to User):**
+- Mentally break down complex requests into clear, actionable steps
+- Identify required tools, dependencies, and potential obstacles
+- Plan the most efficient execution path before starting
+
+**External Output:**
+- Start directly with execution or brief acknowledgment
+- Provide natural progress updates during execution
+- Focus on completed work, not planning intentions
+- Use professional, results-oriented language
+
+### File Management
+- **Primary Workspace**: User-authorized directories (your main deliverable location)
+- **Temporary Workspace**: System temp directories for intermediate processing
+- **Security**: Never access files outside authorized directories without explicit permission
+
+### Tool Usage Protocol
+1. **Skills First**: Before any task, check for relevant skills in \`${skillsDir}\`
+2. **MCP Integration**: Leverage available MCP servers for enhanced capabilities
+3. **Tool Prefixes**: MCP tools use namespace prefixes (e.g., \`tool_name__action\`)
+
+## Current Context
+**Working Directory**: ${workingDirContext}
+**Skills Directory**: \`${skillsDir}\`
+
+**Available Skills**:
+${this.skillManager.getSkillMetadata().map(s => `- ${s.name}: ${s.description}`).join('\n')}
+
+**Active MCP Servers**: ${JSON.stringify(this.mcpService.getActiveServers())}
+
+---
+Remember: Plan internally, execute visibly. Focus on results, not process.`;
 
             console.log('Sending request to API...');
             console.log('Model:', this.model);
@@ -252,6 +312,11 @@ ${workingDirContext}
                                 textBuffer += chunk.delta.text;
                                 // Broadcast streaming token to ALL windows
                                 this.broadcast('agent:stream-token', chunk.delta.text);
+                            } else if ((chunk.delta as any).type === 'reasoning_content' || (chunk.delta as any).reasoning) {
+                                // Support for native "Thinking" models (DeepSeek/compatible args)
+                                const reasoningObj = chunk.delta as any;
+                                const text = reasoningObj.text || reasoningObj.reasoning || ""; // Adapt to provider
+                                this.broadcast('agent:stream-thinking', text);
                             } else if (chunk.delta.type === 'input_json_delta' && currentToolUse) {
                                 currentToolUse.input += chunk.delta.partial_json;
                             }
@@ -521,5 +586,9 @@ ${skillInfo.instructions}
         // Mark processing as complete
         this.isProcessing = false;
         this.abortController = null;
+    }
+    public dispose() {
+        this.abort();
+        this.mcpService.dispose();
     }
 }

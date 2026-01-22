@@ -13,11 +13,13 @@ export interface Session {
 interface SessionStoreSchema {
     sessions: Session[];
     currentSessionId: string | null;
+    currentFloatingBallSessionId: string | null; // Separate session tracking for floating ball
 }
 
 const defaults: SessionStoreSchema = {
     sessions: [],
-    currentSessionId: null
+    currentSessionId: null,
+    currentFloatingBallSessionId: null
 };
 
 class SessionStore {
@@ -90,6 +92,79 @@ class SessionStore {
         }
     }
 
+    // Create or update session only if it has meaningful content
+    saveSession(id: string | null, messages: Anthropic.MessageParam[]): string {
+        // Check if there's real content (user or assistant messages with actual text)
+        const hasRealContent = messages.some(m => {
+            const content = m.content;
+            if (typeof content === 'string') {
+                return content.trim().length > 0;
+            } else if (Array.isArray(content)) {
+                return content.some(block =>
+                    block.type === 'text' ? (block.text || '').trim().length > 0 : true
+                );
+            }
+            return false;
+        });
+
+        // If no meaningful messages, don't save
+        if (!hasRealContent) {
+            console.log('[SessionStore] Skipping empty session');
+            return this.getCurrentSessionId() || '';
+        }
+
+        let sessionId = id;
+        if (!sessionId) {
+            // Create new session only when we have actual content
+            const session = this.createSession();
+            sessionId = session.id;
+            console.log(`[SessionStore] Created new session: ${sessionId}`);
+        }
+
+        try {
+            this.updateSession(sessionId, messages);
+            console.log(`[SessionStore] Successfully saved session ${sessionId} with ${messages.length} messages`);
+        } catch (error) {
+            console.error(`[SessionStore] Error updating session ${sessionId}:`, error);
+            // Try to recover by creating a new session
+            if (id) {
+                console.log('[SessionStore] Attempting recovery by creating new session...');
+                const newSession = this.createSession();
+                sessionId = newSession.id;
+                this.updateSession(sessionId, messages);
+                console.log(`[SessionStore] Recovery successful, new session: ${sessionId}`);
+            } else {
+                throw error; // Re-throw if we can't recover
+            }
+        }
+
+        return sessionId;
+    }
+
+    // Clean up empty sessions (can be called periodically)
+    cleanupEmptySessions(): void {
+        const sessions = this.store.get('sessions') || [];
+        const validSessions = sessions.filter(session => {
+            // Keep sessions that have meaningful messages
+            return session.messages.some(msg => {
+                const content = msg.content;
+                if (typeof content === 'string') {
+                    return content.trim().length > 0;
+                } else if (Array.isArray(content)) {
+                    return content.some(block =>
+                        block.type === 'text' ? (block.text || '').trim().length > 0 : true
+                    );
+                }
+                return false;
+            });
+        });
+
+        if (validSessions.length !== sessions.length) {
+            console.log(`[SessionStore] Cleaned up ${sessions.length - validSessions.length} empty sessions`);
+            this.store.set('sessions', validSessions);
+        }
+    }
+
     // Delete session
     deleteSession(id: string): void {
         const sessions = (this.store.get('sessions') || []).filter(s => s.id !== id);
@@ -107,6 +182,32 @@ class SessionStore {
     // Set current session
     setCurrentSession(id: string): void {
         this.store.set('currentSessionId', id);
+    }
+
+    // Get floating ball's current session ID
+    getFloatingBallSessionId(): string | null {
+        return this.store.get('currentFloatingBallSessionId');
+    }
+
+    // Set floating ball's current session
+    setFloatingBallSession(id: string): void {
+        this.store.set('currentFloatingBallSessionId', id);
+    }
+
+    // Get appropriate session ID based on context
+    getSessionId(isFloatingBall: boolean = false): string | null {
+        return isFloatingBall
+            ? this.getFloatingBallSessionId()
+            : this.getCurrentSessionId();
+    }
+
+    // Set appropriate session based on context
+    setSessionId(id: string, isFloatingBall: boolean = false): void {
+        if (isFloatingBall) {
+            this.setFloatingBallSession(id);
+        } else {
+            this.setCurrentSession(id);
+        }
     }
 }
 

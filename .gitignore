@@ -25,4 +25,5 @@ dist-ssr
 dist-electron
 release
 build
+!build/entitlements.mac.plist
 .opencowork

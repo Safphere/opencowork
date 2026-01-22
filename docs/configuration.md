@@ -27,7 +27,9 @@ If you wish to use other compatible models (such as Claude, GPT, etc.), please m
 
 You can also configure settings via the `.env` file in the project root (development environment only):
 
-```env
-VITE_API_URL=https://your-api-url.com
 VITE_MODEL_NAME=your-model-name
 ```
+
+## MCP Configuration
+
+The application uses `mcp.json` (or `mcp_storage.json`) to define available MCP servers. This allows you to extend the AI's capabilities with external tools and data sources.

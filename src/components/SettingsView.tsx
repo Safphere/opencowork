@@ -1,16 +1,36 @@
-import { useState, useEffect } from 'react';
-import { X, Settings, FolderOpen, Server, Check, Plus, Trash2, Edit2, Zap, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Settings, FolderOpen, Server, Check, Plus, Trash2, Edit2, Zap, Eye, EyeOff, ExternalLink, AlertTriangle, ChevronDown, Loader2, Activity, Info } from 'lucide-react';
+
 import logo from '../assets/logo.png';
+import logoGlm from '../assets/logo-glm.png';
+import logoZai from '../assets/logo-zai.svg';
+import logoMinimaxCn from '../assets/logo-minimax-cn.png';
+import logoMinimaxIntl from '../assets/logo-minimax-intl.png';
 import { SkillEditor } from './SkillEditor';
+import { MCPSettings } from './MCPSettings';
+import { useTheme } from '../theme/ThemeContext';
+import { useI18n } from '../i18n/I18nContext';
 
 interface SettingsViewProps {
     onClose: () => void;
 }
 
-interface Config {
+interface ProviderConfig {
+    id: string;
+    name: string;
     apiKey: string;
     apiUrl: string;
     model: string;
+    isCustom?: boolean;
+    readonlyUrl?: boolean;
+}
+
+interface Config {
+    // Multi-Provider
+    activeProviderId: string;
+    providers: Record<string, ProviderConfig>;
+
+    // Global
     authorizedFolders: string[];
     networkAccess: boolean;
     shortcut: string;
@@ -33,59 +53,164 @@ interface TrustedHubProps {
     title: string;
     description: string;
     icon?: React.ReactNode;
+    className?: string; // Support custom spacing
 }
 
-const TrustedHubPlaceholder = ({ title, description, icon }: TrustedHubProps) => (
-    <div className="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-lg opacity-60 mb-6">
+const TrustedHubPlaceholder = ({ title, description, icon, className }: TrustedHubProps) => (
+    <div className={`flex items-center justify-between p-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg opacity-80 hover:opacity-100 transition-opacity mb-6 group ${className || ''}`}>
         <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 overflow-hidden bg-stone-50 dark:bg-zinc-800 text-stone-500 dark:text-zinc-400">
                 {icon ? (
-                    <div className="text-stone-500">{icon}</div>
+                    <div className="text-stone-500 dark:text-zinc-400">{icon}</div>
                 ) : (
-                    <img src={logo} alt="Logo" className="w-6 h-6 object-contain" />
+                    <img src={logo} alt="Logo" className="w-5 h-5 object-contain opacity-80 group-hover:opacity-100 transition-opacity" />
                 )}
             </div>
             <div>
-                <p className="text-sm font-medium text-stone-700">{title}</p>
-                <p className="text-xs text-stone-400">{description}</p>
+                <p className="text-sm font-medium text-stone-700 dark:text-zinc-100">{title}</p>
+                <p className="text-xs text-stone-400 dark:text-zinc-500">{description}</p>
             </div>
         </div>
-        <span className="text-xs text-stone-400 px-2 py-1 bg-stone-100 rounded">
+        <span className="text-[10px] font-medium text-stone-400 dark:text-zinc-500 px-2 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded border border-transparent dark:border-zinc-700/50">
             开发中
         </span>
     </div>
 );
 
+const PROVIDER_MODELS: Record<string, string[]> = {
+    'glm': ['glm-4.7', 'glm-4.6'],
+    'zai': ['glm-4.7', 'glm-4.6'],
+    'minimax_cn': ['MiniMax-M2.1'],
+    'minimax_intl': ['MiniMax-M2.1'],
+    'custom': []
+};
+
+const OFFICIAL_URLS: Record<string, string> = {
+    'glm': 'https://www.bigmodel.cn/glm-coding?ic=QBPPSNQ5JT',
+    'zai': 'https://z.ai/subscribe?ic=9GTHAGUUX1',
+    'minimax_cn': 'https://platform.minimaxi.com/subscribe/coding-plan?code=HhNfBTQDNq&source=link',
+    'minimax_intl': 'https://platform.minimax.io/subscribe/coding-plan?code=DQlmOtIjX6&source=link'
+};
+
+const ProviderLogo = ({ id, name }: { id: string, name: string }) => {
+    if (id === 'custom') {
+        return <img src={logo} alt="Custom" className="w-5 h-5 object-contain" />;
+    }
+
+    const logos: Record<string, string> = {
+        'glm': logoGlm,
+        'zai': logoZai,
+        'minimax_cn': logoMinimaxCn,
+        'minimax_intl': logoMinimaxIntl
+    };
+
+    if (logos[id]) {
+        return <img src={logos[id]} alt={name} className="w-5 h-5 object-cover rounded-sm" />;
+    }
+
+    // Fallback
+    const colors: Record<string, string> = {
+        'glm': 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+        'zai': 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400',
+        'minimax_cn': 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400',
+        'minimax_intl': 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
+    };
+    return (
+        <div className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold shrink-0 ${colors[id] || 'bg-stone-100 text-stone-500 dark:bg-muted dark:text-muted-foreground'}`}>
+            {name.substring(0, 1)}
+        </div>
+    );
+};
+
 export function SettingsView({ onClose }: SettingsViewProps) {
-    // ... (state code matches existing)
+    const [isProviderOpen, setIsProviderOpen] = useState(false);
+
     const [config, setConfig] = useState<Config>({
-        apiKey: '',
-        apiUrl: 'https://api.minimaxi.com/anthropic',
-        model: 'MiniMax-M2.1',
+        activeProviderId: 'minimax_intl',
+        providers: {},
         authorizedFolders: [],
         networkAccess: false,
         shortcut: 'Alt+Space'
     });
-    // ... (other state hooks)
+
     const [saved, setSaved] = useState(false);
-    const [activeTab, setActiveTab] = useState<'api' | 'folders' | 'mcp' | 'skills' | 'advanced'>('api');
+    const [isSaving, setIsSaving] = useState(false);
+    const isFirstRender = useRef(true);
+    const [activeTab, setActiveTab] = useState<'api' | 'folders' | 'mcp' | 'skills' | 'advanced' | 'about'>('api');
     const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
+    const [testing, setTesting] = useState(false);
+    const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [appInfo, setAppInfo] = useState<{ name: string; version: string; author: string; homepage: string } | null>(null);
+    const [checkingUpdate, setCheckingUpdate] = useState(false);
+    const [updateInfo, setUpdateInfo] = useState<{ hasUpdate: boolean, latestVersion: string, releaseUrl: string } | null>(null);
 
-    // MCP State
-    const [mcpConfig, setMcpConfig] = useState('');
-    const [mcpSaved, setMcpSaved] = useState(false);
+    useEffect(() => {
+        // Fetch app info
+        window.ipcRenderer?.invoke('app:info').then(info => {
+            setAppInfo(info as any);
+        });
+
+        // Removed silent update check on mount to improve performance
+        // Updates should be checked in the About tab or manually
+    }, []);
+
+    const handleCheckUpdate = async () => {
+        setCheckingUpdate(true);
+        setUpdateInfo(null);
+        try {
+            const result = await window.ipcRenderer?.invoke('app:check-update') as any;
+            if (result && result.success) {
+                setUpdateInfo({
+                    hasUpdate: result.hasUpdate,
+                    latestVersion: result.latestVersion,
+                    releaseUrl: result.releaseUrl
+                });
+            }
+        } catch (error) {
+            console.error('Check update failed', error);
+        } finally {
+            setCheckingUpdate(false);
+        }
+    };
+
+    // Reset test result when provider changes
+    useEffect(() => {
+        setTestResult(null);
+    }, [config.activeProviderId]);
+
+    const handleTestConnection = async () => {
+        setTesting(true);
+        setTestResult(null);
+        const providerId = config.activeProviderId;
+        const providerConfig = config.providers[providerId];
+        try {
+            const result = await window.ipcRenderer.invoke('config:test-connection', {
+                apiKey: providerConfig.apiKey,
+                apiUrl: providerConfig.apiUrl,
+                model: providerConfig.model
+            });
+            setTestResult(result as { success: boolean; message: string });
+        } catch (e: any) {
+            setTestResult({ success: false, message: e.message });
+        } finally {
+            setTesting(false);
+        }
+    };
 
     // Skills State
     const [skills, setSkills] = useState<SkillInfo[]>([]);
     const [editingSkill, setEditingSkill] = useState<string | null>(null);
     const [viewingSkill, setViewingSkill] = useState<boolean>(false);
     const [showSkillEditor, setShowSkillEditor] = useState(false);
+    const [showBuiltinSkills, setShowBuiltinSkills] = useState(true);
+
+    // Context Hooks
+    const { theme: mode, setTheme: setMode } = useTheme();
+    const { languageMode, setLanguageMode, t } = useI18n();
 
     // Permissions State
     const [permissions, setPermissions] = useState<ToolPermission[]>([]);
-
-    // ... (keep all helper functions)
 
     const loadPermissions = () => {
         window.ipcRenderer.invoke('permissions:list').then(list => setPermissions(list as ToolPermission[]));
@@ -103,6 +228,18 @@ export function SettingsView({ onClose }: SettingsViewProps) {
         }
     };
 
+    // Listen for tab switch events
+    useEffect(() => {
+        const handleSwitch = (e: CustomEvent) => {
+            const validTabs = ['api', 'folders', 'mcp', 'skills', 'advanced', 'about'];
+            if (e.detail && validTabs.includes(e.detail)) {
+                setActiveTab(e.detail as any);
+            }
+        };
+        document.addEventListener('switch-settings-tab', handleSwitch as EventListener);
+        return () => document.removeEventListener('switch-settings-tab', handleSwitch as EventListener);
+    }, []);
+
     useEffect(() => {
         window.ipcRenderer.invoke('config:get-all').then((cfg) => {
             if (cfg) setConfig(cfg as Config);
@@ -110,9 +247,7 @@ export function SettingsView({ onClose }: SettingsViewProps) {
     }, []);
 
     useEffect(() => {
-        if (activeTab === 'mcp') {
-            window.ipcRenderer.invoke('mcp:get-config').then(cfg => setMcpConfig(cfg as string));
-        } else if (activeTab === 'skills') {
+        if (activeTab === 'skills') {
             refreshSkills();
         } else if (activeTab === 'advanced') {
             loadPermissions();
@@ -148,25 +283,47 @@ export function SettingsView({ onClose }: SettingsViewProps) {
         window.ipcRenderer.invoke('skills:list').then(list => setSkills(list as SkillInfo[]));
     };
 
-    const handleSave = async () => {
-        await window.ipcRenderer.invoke('config:set-all', config);
-        setSaved(true);
-        setTimeout(() => {
-            setSaved(false);
-            onClose();
-        }, 800);
-    };
+    // Track previous config to prevent redundant saves
+    const prevConfigRef = useRef<string>('');
 
-    const saveMcpConfig = async () => {
-        try {
-            JSON.parse(mcpConfig);
-            await window.ipcRenderer.invoke('mcp:save-config', mcpConfig);
-            setMcpSaved(true);
-            setTimeout(() => setMcpSaved(false), 2000);
-        } catch (e) {
-            alert('Invalid JSON configuration');
+    // Initialize prevConfigRef when config is first loaded
+    useEffect(() => {
+        if (config && prevConfigRef.current === '') {
+            prevConfigRef.current = JSON.stringify(config);
         }
-    };
+    }, [config]);
+
+    // Auto-save effect
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+
+        // Deep comparison to avoid false positives
+        const currentConfigStr = JSON.stringify(config);
+        if (currentConfigStr === prevConfigRef.current) {
+            return;
+        }
+
+        setIsSaving(true);
+        setSaved(false);
+
+        const timer = setTimeout(async () => {
+            try {
+                await window.ipcRenderer.invoke('config:set-all', config);
+                prevConfigRef.current = currentConfigStr; // Update ref only after successful save intent
+                setIsSaving(false);
+                setSaved(true);
+                setTimeout(() => setSaved(false), 2000);
+            } catch (err) {
+                console.error('Auto-save failed:', err);
+                setIsSaving(false);
+            }
+        }, 800);
+
+        return () => clearTimeout(timer);
+    }, [config]);
 
     const deleteSkill = async (filename: string) => {
         if (confirm(`确定要删除技能 "${filename}" 吗？`)) {
@@ -187,28 +344,29 @@ export function SettingsView({ onClose }: SettingsViewProps) {
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-zinc-950 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col h-[85vh] border border-stone-200 dark:border-zinc-800">
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-stone-100 shrink-0">
-                    <h2 className="text-lg font-semibold text-stone-800">设置</h2>
+                <div className="flex items-center justify-between p-4 border-b border-stone-100 dark:border-zinc-800 shrink-0">
+                    <h2 className="text-lg font-semibold text-stone-800 dark:text-zinc-100">{t('settings')}</h2>
                     <div className="flex items-center gap-2">
-                        {activeTab === 'api' || activeTab === 'folders' || activeTab === 'advanced' ? (
-                            <button
-                                onClick={handleSave}
-                                disabled={saved}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${saved
-                                    ? 'bg-green-100 text-green-600'
-                                    : 'bg-orange-500 text-white hover:bg-orange-600'
-                                    }`}
-                            >
-                                {saved ? <Check size={14} /> : null}
-                                {saved ? '已保存' : '保存'}
-                            </button>
-                        ) : null}
+                        <div className="flex items-center gap-2 px-2">
+                            {isSaving && (
+                                <span className="text-xs text-stone-400 dark:text-zinc-500 flex items-center gap-1 bg-stone-100 dark:bg-zinc-800 px-2 py-1 rounded-full">
+                                    <Loader2 size={12} className="animate-spin" />
+                                    {t('saving') || 'Saving...'}
+                                </span>
+                            )}
+                            {saved && !isSaving && (
+                                <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 animate-in fade-in slide-in-from-bottom-1 duration-300 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded-full border border-green-200 dark:border-green-800">
+                                    <Check size={12} />
+                                    {t('saved')}
+                                </span>
+                            )}
+                        </div>
                         <button
                             onClick={onClose}
-                            className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
+                            className="p-1.5 text-stone-400 hover:text-stone-600 dark:text-zinc-500 dark:hover:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
                         >
                             <X size={18} />
                         </button>
@@ -216,103 +374,287 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex border-b border-stone-100 overflow-x-auto shrink-0">
+                <div className="flex border-b border-stone-100 dark:border-zinc-800 overflow-x-auto shrink-0">
                     {[
-                        { id: 'api' as const, label: '通用', icon: <Settings size={14} /> },
-                        { id: 'folders' as const, label: '权限', icon: <FolderOpen size={14} /> },
-                        { id: 'mcp' as const, label: 'MCP', icon: <Server size={14} /> },
-                        { id: 'skills' as const, label: 'Skills', icon: <Zap size={14} /> },
-                        { id: 'advanced' as const, label: '高级', icon: <Settings size={14} /> },
+                        { id: 'api' as const, label: t('tabGeneral'), icon: <Settings size={14} /> },
+                        { id: 'folders' as const, label: t('tabPermissions'), icon: <FolderOpen size={14} /> },
+                        { id: 'mcp' as const, label: t('tabMCP'), icon: <Server size={14} /> },
+                        { id: 'skills' as const, label: t('tabSkills'), icon: <Zap size={14} /> },
+                        { id: 'advanced' as const, label: t('tabAdvanced'), icon: <Settings size={14} /> },
+                        { id: 'about' as const, label: t('tabAbout'), icon: <Info size={14} /> },
                     ].map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap ${activeTab === tab.id
-                                ? 'text-orange-500 border-b-2 border-orange-500 bg-orange-50/50'
-                                : 'text-stone-500 hover:text-stone-700 hover:bg-stone-50'
+                                ? 'text-orange-500 border-b-2 border-orange-500 bg-orange-50/50 dark:bg-orange-500/10'
+                                : 'text-stone-500 dark:text-zinc-500 hover:text-stone-700 dark:hover:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-900/50'
                                 }`}
                         >
                             {/*tab.icon*/}
                             {tab.label}
+                            {tab.id === 'about' && updateInfo?.hasUpdate && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse ml-0.5" />
+                            )}
                         </button>
                     ))}
                 </div>
 
-                {/* Content */}
-                <div className="p-0 overflow-y-auto flex-1 bg-stone-50/30 flex flex-col">
-                    <div className={`p-5 min-h-0 ${['mcp', 'skills'].includes(activeTab) ? 'flex-1 flex flex-col' : 'space-y-5'}`}>
+                <div className="p-0 overflow-y-auto flex-1 bg-stone-50/30 dark:bg-zinc-900/50 flex flex-col">
+                    <div className={`min-h-0 ${['mcp', 'skills'].includes(activeTab) ? 'px-5 pt-5 pb-1 flex-1 flex flex-col' : 'p-5 space-y-5'}`}>
                         {activeTab === 'api' && (
                             <>
-                                <div>
-                                    <label className="block text-xs font-medium text-stone-500 mb-1.5">API Key</label>
+                                {/* Appearance Settings */}
+                                <div className="space-y-4 animate-in fade-in duration-300">
+                                    <div className="flex gap-4">
+                                        <div className="flex-1">
+                                            <label className="block text-xs font-medium text-stone-500 dark:text-zinc-400 mb-1.5">{t('language')}</label>
+                                            <div className="relative">
+                                                <select
+                                                    value={languageMode}
+                                                    onChange={(e) => setLanguageMode(e.target.value as any)}
+                                                    className="w-full bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm text-stone-700 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 appearance-none"
+                                                >
+                                                    <option value="system">{t('system')}</option>
+                                                    <option value="zh">简体中文</option>
+                                                    <option value="en">English</option>
+                                                </select>
+                                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-stone-400 dark:text-zinc-500">
+                                                    <Settings size={14} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="flex-1">
+                                            <label className="block text-xs font-medium text-stone-500 dark:text-zinc-400 mb-1.5">{t('theme')}</label>
+                                            <div className="relative">
+                                                <select
+                                                    value={mode}
+                                                    onChange={(e) => setMode(e.target.value as any)}
+                                                    className="w-full bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm text-stone-700 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 appearance-none"
+                                                >
+                                                    <option value="system">{t('system')}</option>
+                                                    <option value="light">{t('light')}</option>
+                                                    <option value="dark">{t('dark')}</option>
+                                                </select>
+                                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-stone-400 dark:text-zinc-500">
+                                                    <Settings size={14} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="h-px bg-stone-100 dark:bg-zinc-800" />
+                                </div>
+                                {/* Provider Selection Custom Dropdown */}
+                                <div className="mb-4 relative z-10">
+                                    <label className="block text-xs font-medium text-stone-500 dark:text-zinc-400 mb-1.5">{t('providerSelection')}</label>
                                     <div className="relative">
-                                        <input
-                                            type={showApiKey ? "text" : "password"}
-                                            value={config.apiKey}
-                                            onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
-                                            placeholder="sk-..."
-                                            className="w-full bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 pr-9"
-                                        />
                                         <button
                                             type="button"
-                                            onClick={() => setShowApiKey(!showApiKey)}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-600 transition-colors"
-                                            title={showApiKey ? "隐藏" : "显示"}
+                                            onClick={() => setIsProviderOpen(!isProviderOpen)}
+                                            className="w-full bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 rounded-lg pl-3 pr-10 py-2 text-sm text-stone-700 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 flex items-center gap-2 text-left"
                                         >
-                                            {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                                            <ProviderLogo
+                                                id={config.activeProviderId}
+                                                name={config.providers[config.activeProviderId]?.name || 'Unknown'}
+                                            />
+                                            <span className="truncate">{config.providers[config.activeProviderId]?.name}</span>
+                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-stone-400 dark:text-zinc-500">
+                                                <Server size={14} />
+                                            </div>
                                         </button>
+
+                                        {isProviderOpen && (
+                                            <>
+                                                <div
+                                                    className="fixed inset-0 z-10"
+                                                    onClick={() => setIsProviderOpen(false)}
+                                                />
+                                                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 rounded-lg shadow-lg z-20 max-h-60 overflow-y-auto py-1">
+                                                    {Object.values(config.providers).map((provider) => (
+                                                        <button
+                                                            key={provider.id}
+                                                            onClick={() => {
+                                                                setConfig({ ...config, activeProviderId: provider.id });
+                                                                setIsProviderOpen(false);
+                                                            }}
+                                                            className={`w-full px-3 py-2 flex items-center gap-2 text-sm hover:bg-stone-50 dark:hover:bg-zinc-800 transition-colors ${config.activeProviderId === provider.id ? 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10' : 'text-stone-700 dark:text-zinc-300'}`}
+                                                        >
+                                                            <ProviderLogo id={provider.id} name={provider.name} />
+                                                            <span className="truncate">{provider.name}</span>
+                                                            {config.activeProviderId === provider.id && (
+                                                                <Check size={14} className="ml-auto" />
+                                                            )}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-stone-500 mb-1.5">API URL</label>
-                                    <input
-                                        type="text"
-                                        value={config.apiUrl}
-                                        onChange={(e) => setConfig({ ...config, apiUrl: e.target.value })}
-                                        placeholder="https://api.anthropic.com"
-                                        className="w-full bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-stone-500 mb-1.5">模型名称</label>
-                                    <input
-                                        type="text"
-                                        value={config.model}
-                                        onChange={(e) => setConfig({ ...config, model: e.target.value })}
-                                        placeholder="glm-4.7"
-                                        className="w-full bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
-                                    />
-                                    <p className="text-xs text-stone-400 mt-1">输入模型名称，如 MiniMax-M2.1</p>
-                                </div>
+
+                                {/* Dynamic Config Form */}
+                                {config.providers[config.activeProviderId] && (
+                                    <div className="space-y-4 animate-in fade-in duration-300">
+                                        <div>
+                                            <label className="block text-xs font-medium text-stone-500 dark:text-zinc-400 mb-1.5">
+                                                {t('apiUrl')}
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={config.providers[config.activeProviderId].apiUrl}
+                                                onChange={(e) => {
+                                                    const newProviders = { ...config.providers };
+                                                    newProviders[config.activeProviderId] = {
+                                                        ...newProviders[config.activeProviderId],
+                                                        apiUrl: e.target.value
+                                                    };
+                                                    setConfig({ ...config, providers: newProviders });
+                                                }}
+                                                readOnly={config.providers[config.activeProviderId].readonlyUrl}
+                                                className={`w-full border border-stone-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm text-stone-700 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 ${config.providers[config.activeProviderId].readonlyUrl ? 'bg-stone-50 dark:bg-zinc-800 text-stone-500 dark:text-zinc-500 cursor-not-allowed' : 'bg-white dark:bg-zinc-900'}`}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-medium text-stone-500 dark:text-zinc-400 mb-1.5">{t('modelSelection')}</label>
+                                            {config.activeProviderId === 'custom' ? (
+                                                // Custom: Text Input
+                                                <input
+                                                    type="text"
+                                                    value={config.providers[config.activeProviderId].model}
+                                                    onChange={(e) => {
+                                                        const newProviders = { ...config.providers };
+                                                        newProviders[config.activeProviderId] = {
+                                                            ...newProviders[config.activeProviderId],
+                                                            model: e.target.value
+                                                        };
+                                                        setConfig({ ...config, providers: newProviders });
+                                                    }}
+                                                    placeholder={t('inputModelName')}
+                                                    className="w-full bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm text-stone-700 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                                                />
+                                            ) : (
+                                                // Built-in: Dropdown
+                                                <div className="relative">
+                                                    <select
+                                                        value={config.providers[config.activeProviderId].model}
+                                                        onChange={(e) => {
+                                                            const newProviders = { ...config.providers };
+                                                            newProviders[config.activeProviderId] = {
+                                                                ...newProviders[config.activeProviderId],
+                                                                model: e.target.value
+                                                            };
+                                                            setConfig({ ...config, providers: newProviders });
+                                                        }}
+                                                        className="w-full bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm text-stone-700 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 appearance-none"
+                                                    >
+                                                        {(PROVIDER_MODELS[config.activeProviderId] || []).map(model => (
+                                                            <option key={model} value={model}>
+                                                                {model}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-stone-400 dark:text-zinc-500">
+                                                        <Settings size={14} />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div>
+                                            <div className="flex items-center justify-between mb-1.5">
+                                                <label className="text-xs font-medium text-stone-500 dark:text-zinc-400">{t('apiKey')}</label>
+                                                {OFFICIAL_URLS[config.activeProviderId] ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => window.open(OFFICIAL_URLS[config.activeProviderId], '_blank')}
+                                                        className="flex items-center gap-1 text-[10px] text-orange-500 hover:text-orange-600 hover:underline transition-colors"
+                                                    >
+                                                        <span>{t('getApiKey') || '获取 Key'}</span>
+                                                        <ExternalLink size={10} />
+                                                    </button>
+                                                ) : (
+                                                    <div className="flex items-center gap-1 text-[10px] text-amber-500 dark:text-amber-400">
+                                                        <AlertTriangle size={12} />
+                                                        <span>{t('customKeyRisk') || '请确保使用可信的 API 服务'}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="relative">
+                                                <input
+                                                    type={showApiKey ? "text" : "password"}
+                                                    value={config.providers[config.activeProviderId].apiKey}
+                                                    onChange={(e) => {
+                                                        const newProviders = { ...config.providers };
+                                                        newProviders[config.activeProviderId] = {
+                                                            ...newProviders[config.activeProviderId],
+                                                            apiKey: e.target.value
+                                                        };
+                                                        setConfig({ ...config, providers: newProviders });
+                                                    }}
+                                                    placeholder={t('apiKeyPlaceholder')}
+                                                    className="w-full bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-700 rounded-lg px-3 py-2 text-sm text-stone-700 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 pr-9"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowApiKey(!showApiKey)}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-600 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors"
+                                                    title={showApiKey ? t('hide') : t('show')}
+                                                >
+                                                    {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                </button>
+                                            </div>
+                                            <div className="flex justify-end items-center gap-2 mt-2">
+                                                {testResult && (
+                                                    <span className={`text-xs ${testResult.success ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                                        {testResult.success
+                                                            ? t('connectionSuccess')
+                                                            : `${t('connectionFailed')}: ${testResult.message}`
+                                                        }
+                                                    </span>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={handleTestConnection}
+                                                    disabled={testing || !config.providers[config.activeProviderId].apiKey}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-stone-600 dark:text-zinc-300 bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {testing ? <Loader2 size={12} className="animate-spin" /> : <Activity size={12} />}
+                                                    {t('testConnection') || '测试连接'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </>
                         )}
 
                         {activeTab === 'folders' && (
                             <>
-                                <div className="bg-blue-50 text-blue-700 rounded-lg p-3 text-xs">
-                                    出于安全考虑，AI 只能访问以下授权的文件夹及其子文件夹。
+                                <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg p-3 text-xs">
+                                    {t('folderPermissionDesc') || 'AI can only access authorized folders for security.'}
                                 </div>
 
                                 {config.authorizedFolders.length === 0 ? (
-                                    <div className="text-center py-8 text-stone-400 border-2 border-dashed border-stone-200 rounded-xl">
-                                        <p className="text-sm">暂无授权文件夹</p>
+                                    <div className="text-center py-8 text-stone-400 dark:text-muted-foreground border-2 border-dashed border-stone-200 dark:border-border rounded-xl">
+                                        <p className="text-sm">{t('noAuthorizedFolders') || 'No authorized folders'}</p>
                                     </div>
                                 ) : (
                                     <div className="space-y-2">
                                         {config.authorizedFolders.map((folder, idx) => (
                                             <div
                                                 key={idx}
-                                                className="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-lg group"
+                                                className="flex items-center justify-between p-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg group"
                                             >
                                                 <div className="flex items-center gap-3 overflow-hidden">
-                                                    <FolderOpen size={16} className="text-stone-400 shrink-0" />
-                                                    <span className="text-sm font-mono text-stone-600 truncate">
+                                                    <FolderOpen size={16} className="text-stone-400 dark:text-zinc-500 shrink-0" />
+                                                    <span className="text-sm font-mono text-stone-600 dark:text-zinc-200 truncate">
                                                         {folder}
                                                     </span>
                                                 </div>
                                                 <button
                                                     onClick={() => removeFolder(folder)}
-                                                    className="p-1 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                                                    className="p-1 text-stone-300 dark:text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-all"
                                                 >
                                                     <X size={16} />
                                                 </button>
@@ -323,59 +665,28 @@ export function SettingsView({ onClose }: SettingsViewProps) {
 
                                 <button
                                     onClick={addFolder}
-                                    className="w-full py-2.5 border border-dashed border-stone-300 text-stone-500 hover:text-orange-600 hover:border-orange-500 hover:bg-orange-50 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
+                                    className="w-full py-2.5 border border-dashed border-stone-300 dark:border-zinc-700 text-stone-500 dark:text-zinc-400 hover:text-orange-600 hover:border-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
                                 >
                                     <Plus size={16} />
-                                    添加文件夹
+                                    {t('addAuthorizedFolder')}
                                 </button>
                             </>
                         )}
 
                         {activeTab === 'mcp' && (
                             <div className="h-full flex flex-col">
-                                <TrustedHubPlaceholder
-                                    title="OpenCowork Hub"
-                                    description="可信的 MCP 服务"
-                                />
-                                <div className="flex items-center justify-between mb-2 shrink-0">
-                                    <span
-                                        onClick={() => window.ipcRenderer.invoke('mcp:open-config-folder')}
-                                        className="text-xs font-medium text-orange-500 hover:text-orange-600 hover:underline cursor-pointer transition-colors flex items-center gap-1"
-                                        title="点击打开配置文件所在文件夹"
-                                    >
-                                        mcp.json 配置
-                                    </span>
-                                    <button
-                                        onClick={saveMcpConfig}
-                                        className={`text-xs px-2 py-1 rounded transition-colors ${mcpSaved ? 'bg-green-100 text-green-600' : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-                                            }`}
-                                    >
-                                        {mcpSaved ? '已保存' : '保存配置'}
-                                    </button>
-                                </div>
-                                <div className="flex-1 flex flex-col min-h-0">
-                                    <textarea
-                                        value={mcpConfig}
-                                        onChange={(e) => setMcpConfig(e.target.value)}
-                                        className="w-full flex-1 bg-white border border-stone-200 rounded-lg p-3 font-mono text-xs focus:outline-none focus:border-orange-500 resize-none text-stone-700 mb-2"
-                                        placeholder='{ "mcpServers": { ... } }'
-                                        spellCheck={false}
-                                    />
-                                    <p className="text-[10px] text-stone-400 shrink-0 mb-0">
-                                        配置将保存在 ~/.opencowork/mcp.json。请确保 JSON 格式正确。
-                                    </p>
-                                </div>
+                                <MCPSettings config={config} />
                             </div>
                         )}
 
                         {activeTab === 'skills' && (
                             <div className="h-full flex flex-col">
                                 <TrustedHubPlaceholder
-                                    title="OpenCowork Hub"
-                                    description="可信的 AI 技能"
+                                    title={t('openCoworkHub')}
+                                    description={t('trustedSkills')}
                                 />
                                 <div className="flex items-center justify-between mb-3 shrink-0">
-                                    <p className="text-sm text-stone-500">自定义 AI 技能</p>
+                                    <p className="text-sm text-stone-500 dark:text-muted-foreground">{t('customSkills')}</p>
                                     <button
                                         onClick={() => {
                                             setEditingSkill(null);
@@ -384,92 +695,168 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                                         className="flex items-center gap-1 text-xs px-2 py-1 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
                                     >
                                         <Plus size={12} />
-                                        新建技能
+                                        {t('newSkill')}
                                     </button>
                                 </div>
 
-                                <div className="flex-1 overflow-y-auto min-h-0 mb-4 pr-1">
+                                <div className="flex-1 overflow-y-auto min-h-0 pr-1 custom-scrollbar space-y-2">
                                     {skills.length === 0 ? (
-                                        <div className="text-center py-8 text-stone-400 border-2 border-dashed border-stone-200 rounded-xl">
-                                            <p className="text-sm">暂无技能</p>
+                                        <div className="text-center py-8 text-stone-400 dark:text-muted-foreground border-2 border-dashed border-stone-200 dark:border-border rounded-xl">
+                                            <p className="text-sm">{t('noSkills')}</p>
                                         </div>
                                     ) : (
                                         <div className="grid grid-cols-1 gap-2">
-                                            {skills.map((skill) => (
-                                                <div
-                                                    key={skill.id}
-                                                    className="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-lg hover:border-orange-200 transition-colors group"
-                                                >
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${skill.isBuiltin ? 'bg-orange-50 text-orange-600' : 'bg-purple-50 text-purple-600'}`}>
-                                                            <Zap size={16} />
-                                                        </div>
-                                                        <div>
-                                                            <div className="flex items-center gap-2">
-                                                                <p className="text-sm font-medium text-stone-700">{skill.name}</p>
-                                                                {skill.isBuiltin && (
-                                                                    <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded-full font-medium">内置</span>
-                                                                )}
+                                            <div className="grid grid-cols-1 gap-2">
+                                                {/* Custom Skills */}
+                                                {skills.filter(s => !s.isBuiltin).map((skill) => (
+                                                    <div
+                                                        key={skill.id}
+                                                        className="flex items-center justify-between p-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg group hover:border-orange-200 dark:hover:border-zinc-700 transition-colors"
+                                                    >
+                                                        <div className="flex items-center gap-3 overflow-hidden">
+                                                            <div className="w-8 h-8 flex items-center justify-center p-2 bg-stone-100 dark:bg-zinc-800 text-stone-500 dark:text-zinc-400 rounded-lg shrink-0">
+                                                                <Zap size={16} />
                                                             </div>
-                                                            <p className="text-[10px] text-stone-400 font-mono truncate max-w-xs">{skill.path}</p>
+                                                            <div className="min-w-0">
+                                                                <div className="flex items-center gap-2">
+                                                                    <p className="text-sm font-medium text-stone-700 dark:text-zinc-100 truncate">{skill.name}</p>
+                                                                </div>
+                                                                <p className="text-[10px] text-stone-400 dark:text-zinc-500 font-mono truncate max-w-xs">{skill.path}</p>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <button
-                                                            onClick={() => {
-                                                                setEditingSkill(skill.id);
-                                                                setViewingSkill(skill.isBuiltin); // Set view-only if built-in
-                                                                setShowSkillEditor(true);
-                                                            }}
-                                                            className="p-1.5 text-stone-400 hover:text-blue-500 hover:bg-blue-50 rounded"
-                                                            title={skill.isBuiltin ? "查看" : "编辑"}
-                                                        >
-                                                            {skill.isBuiltin ? <Eye size={14} /> : <Edit2 size={14} />}
-                                                        </button>
-                                                        {!skill.isBuiltin && (
+                                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingSkill(skill.id);
+                                                                    setViewingSkill(false);
+                                                                    setShowSkillEditor(true);
+                                                                }}
+                                                                className="p-1.5 text-stone-400 dark:text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
+                                                                title={t('edit')}
+                                                            >
+                                                                <Edit2 size={14} />
+                                                            </button>
                                                             <button
                                                                 onClick={() => deleteSkill(skill.id)}
-                                                                className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded"
-                                                                title="删除"
+                                                                className="p-1.5 text-stone-400 dark:text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                                                                title={t('delete')}
                                                             >
                                                                 <Trash2 size={14} />
                                                             </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+
+                                                {/* Built-in Skills Section */}
+                                                {skills.some(s => s.isBuiltin) && (
+                                                    <div className="mt-1 border-t border-transparent">
+                                                        <div
+                                                            onClick={() => setShowBuiltinSkills(!showBuiltinSkills)}
+                                                            className="flex items-center gap-2 px-1 py-2 cursor-pointer group select-none"
+                                                        >
+                                                            <div className={`p-0.5 rounded transition-colors text-stone-400 dark:text-zinc-500 group-hover:text-stone-600 dark:group-hover:text-zinc-300 ${!showBuiltinSkills ? '-rotate-90' : 'rotate-0'} transform duration-200`}>
+                                                                <ChevronDown size={14} />
+                                                            </div>
+                                                            <span className="text-xs font-semibold text-stone-400 dark:text-zinc-500 uppercase tracking-wider group-hover:text-stone-600 dark:group-hover:text-zinc-300 transition-colors">
+                                                                {t('builtinSkills') || 'Built-in Skills'}
+                                                            </span>
+                                                            <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 dark:bg-zinc-800 text-stone-400 dark:text-zinc-500 rounded-full ml-auto">
+                                                                {skills.filter(s => s.isBuiltin).length}
+                                                            </span>
+                                                        </div>
+
+                                                        {showBuiltinSkills && (
+                                                            <div className="space-y-2 mt-1">
+                                                                {skills.filter(s => s.isBuiltin).map((skill) => (
+                                                                    <div
+                                                                        key={skill.id}
+                                                                        className="flex items-center justify-between p-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg group hover:border-orange-200 dark:hover:border-zinc-700 transition-colors grayscale opacity-80 hover:opacity-100"
+                                                                    >
+                                                                        <div className="flex items-center gap-3 overflow-hidden">
+                                                                            <div className="w-8 h-8 flex items-center justify-center p-2 bg-stone-100 dark:bg-zinc-800 text-stone-500 dark:text-zinc-400 rounded-lg shrink-0">
+                                                                                <Zap size={16} />
+                                                                            </div>
+                                                                            <div className="min-w-0">
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <p className="text-sm font-medium text-stone-700 dark:text-zinc-100 truncate">{skill.name}</p>
+                                                                                    <span className="text-[10px] px-1.5 py-0.5 bg-stone-100 dark:bg-zinc-800 text-stone-500 dark:text-zinc-400 rounded-full font-medium shrink-0">{t('builtIn')}</span>
+                                                                                </div>
+                                                                                <p className="text-[10px] text-stone-400 dark:text-zinc-500 font-mono truncate max-w-xs">{skill.path}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setEditingSkill(skill.id);
+                                                                                    setViewingSkill(true); // View only
+                                                                                    setShowSkillEditor(true);
+                                                                                }}
+                                                                                className="p-1.5 text-stone-400 dark:text-muted-foreground hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
+                                                                                title={t('view')}
+                                                                            >
+                                                                                <Eye size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
                                                         )}
                                                     </div>
-                                                </div>
-                                            ))}
+                                                )}
+                                            </div>
                                         </div>
                                     )}
+                                </div>
+
+                                {/* Bottom Open Folder Button */}
+                                <div className="pt-0 pb-1 shrink-0 flex justify-center border-t border-transparent relative z-10">
+                                    <button
+                                        onClick={() => window.ipcRenderer.invoke('skills:open-folder')}
+                                        className="flex items-center gap-1.5 text-[10px] text-stone-400 hover:text-stone-600 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors bg-stone-50 hover:bg-stone-100 dark:bg-zinc-900/50 dark:hover:bg-zinc-900 px-3 py-1.5 rounded-full border border-stone-100 hover:border-stone-200 dark:border-zinc-800 dark:hover:border-zinc-700"
+                                    >
+                                        <FolderOpen size={10} />
+                                        {t('openSkillsFolder')}
+                                    </button>
                                 </div>
                             </div>
                         )}
 
                         {activeTab === 'advanced' && (
                             <>
-                                <div className="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-lg opacity-60">
-                                    <div>
-                                        <p className="text-sm font-medium text-stone-700">浏览器操作</p>
-                                        <p className="text-xs text-stone-400">允许 AI 操作浏览器（开发中）</p>
+                                <div className="flex items-center justify-between p-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg transition-all hover:border-orange-200 dark:hover:border-zinc-700 opacity-60 hover:opacity-100 group">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 overflow-hidden bg-stone-50 dark:bg-zinc-800 text-stone-500 dark:text-zinc-400">
+                                            <img src={logo} alt="Logo" className="w-5 h-5 object-contain opacity-80 group-hover:opacity-100 transition-opacity" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-medium text-stone-700 dark:text-zinc-100">{t('browserAutomation')}</p>
+                                            <p className="text-xs text-stone-400 dark:text-zinc-500">{t('browserAutomationDesc')}</p>
+                                        </div>
                                     </div>
                                     <button
                                         disabled
-                                        className="w-10 h-6 rounded-full bg-stone-200 cursor-not-allowed"
+                                        className="w-10 h-6 rounded-full bg-stone-200 dark:bg-zinc-800 cursor-not-allowed border border-transparent dark:border-zinc-700"
                                     >
-                                        <div className="w-4 h-4 rounded-full bg-white shadow mx-1 translate-x-0" />
+                                        <div className="w-4 h-4 rounded-full bg-white dark:bg-zinc-500 shadow mx-1 translate-x-0" />
                                     </button>
                                 </div>
 
-                                <div className="flex items-center justify-between p-3 bg-white border border-stone-200 rounded-lg">
-                                    <div>
-                                        <p className="text-sm font-medium text-stone-700">快捷键</p>
-                                        <p className="text-xs text-stone-400">{config.shortcut} 呼出悬浮球</p>
+                                <div className="flex items-center justify-between p-3 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg transition-all hover:border-orange-200 dark:hover:border-zinc-700">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 flex items-center justify-center p-2 bg-stone-100 dark:bg-zinc-800 rounded-lg text-stone-500 dark:text-zinc-400 shrink-0">
+                                            <Settings size={18} />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-medium text-stone-700 dark:text-zinc-100">{t('shortcut')}</p>
+                                            <p className="text-xs text-stone-400 dark:text-zinc-500">{config.shortcut} {t('shortcutDesc')}</p>
+                                        </div>
                                     </div>
                                     {isRecordingShortcut ? (
                                         <input
                                             type="text"
                                             autoFocus
-                                            className="px-3 py-1.5 text-sm border border-orange-400 rounded-lg bg-orange-50 text-orange-600 font-medium outline-none animate-pulse"
-                                            placeholder="按下快捷键..."
+                                            className="px-3 py-1.5 text-sm border border-orange-400 rounded-lg bg-orange-50 text-orange-600 font-medium outline-none animate-pulse text-center min-w-[100px]"
+                                            placeholder={t('pressShortcut')}
                                             onKeyDown={handleShortcutKeyDown}
                                             onBlur={() => setIsRecordingShortcut(false)}
                                             readOnly
@@ -477,7 +864,7 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                                     ) : (
                                         <button
                                             onClick={() => setIsRecordingShortcut(true)}
-                                            className="px-3 py-1.5 text-sm border border-stone-200 rounded-lg hover:bg-stone-50 text-stone-600"
+                                            className="px-3 py-1.5 text-sm border border-stone-200 dark:border-zinc-700 rounded-lg hover:bg-stone-50 dark:hover:bg-zinc-800 text-stone-600 dark:text-zinc-300 font-mono transition-colors min-w-[80px]"
                                         >
                                             {config.shortcut}
                                         </button>
@@ -486,52 +873,132 @@ export function SettingsView({ onClose }: SettingsViewProps) {
 
                                 {/* Permissions Management */}
                                 <div className="space-y-2">
-                                    <p className="text-sm font-medium text-stone-700">已授权的权限</p>
+                                    <p className="text-sm font-medium text-stone-700 dark:text-foreground">{t('grantedPermissions')}</p>
                                     {permissions.length === 0 ? (
-                                        <p className="text-xs text-stone-400 p-3 bg-stone-50 rounded-lg">暂无已保存的权限</p>
+                                        <p className="text-xs text-stone-400 dark:text-muted-foreground p-3 bg-stone-50 dark:bg-muted/50 rounded-lg">{t('noPermissions')}</p>
                                     ) : (
                                         <div className="space-y-2">
                                             {permissions.map((p, idx) => (
-                                                <div key={idx} className="flex items-center justify-between p-2 bg-white border border-stone-200 rounded-lg">
+                                                <div key={idx} className="flex items-center justify-between p-2 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-lg">
                                                     <div className="flex-1">
-                                                        <p className="text-sm font-mono text-stone-700">{p.tool}</p>
-                                                        <p className="text-xs text-stone-400">{p.pathPattern === '*' ? '所有路径' : p.pathPattern}</p>
+                                                        <p className="text-sm font-mono text-stone-700 dark:text-zinc-100">{p.tool}</p>
+                                                        <p className="text-xs text-stone-400 dark:text-zinc-500">{p.pathPattern === '*' ? t('allPaths') : p.pathPattern}</p>
                                                     </div>
                                                     <button
                                                         onClick={() => revokePermission(p.tool, p.pathPattern)}
-                                                        className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                                                        className="px-2 py-1 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
                                                     >
-                                                        撤销
+                                                        {t('revoke')}
                                                     </button>
                                                 </div>
                                             ))}
                                             <button
                                                 onClick={clearAllPermissions}
-                                                className="w-full px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                                                className="w-full px-3 py-2 text-sm text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/30 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10"
                                             >
-                                                清除所有权限
+                                                {t('clearAllPermissions')}
                                             </button>
                                         </div>
                                     )}
                                 </div>
                             </>
                         )}
+
+                        {activeTab === 'about' && (
+                            <div className="flex flex-col items-center justify-center p-8 text-center space-y-6 animate-in fade-in zoom-in-95 duration-300">
+                                <div className="p-4 bg-white dark:bg-zinc-800 rounded-2xl shadow-sm border border-stone-100 dark:border-zinc-700">
+                                    <img src={logo} alt="Logo" className="w-16 h-16 object-contain" />
+                                </div>
+                                <div className="space-y-2">
+                                    <h3 className="text-xl font-bold text-stone-800 dark:text-zinc-100">
+                                        {appInfo?.name || 'OpenCowork'}
+                                    </h3>
+                                    <p className="text-sm font-mono text-stone-500 dark:text-zinc-500">
+                                        v{appInfo?.version || '1.0.0'}
+                                    </p>
+                                </div>
+
+                                <div className="w-full max-w-sm bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl overflow-hidden divide-y divide-stone-100 dark:divide-zinc-800">
+                                    <a
+                                        href="https://github.com/Safphere"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center justify-between p-3.5 hover:bg-stone-50 dark:hover:bg-zinc-800 transition-colors group"
+                                    >
+                                        <span className="text-sm text-stone-500 dark:text-zinc-400">{t('author') || 'Author'}</span>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-sm font-medium text-stone-700 dark:text-zinc-200 group-hover:text-orange-500 transition-colors">{appInfo?.author || 'Safphere'}</span>
+                                            <ExternalLink size={14} className="text-stone-400 dark:text-zinc-500 group-hover:text-orange-500 transition-colors" />
+                                        </div>
+                                    </a>
+                                    <a
+                                        href={appInfo?.homepage || '#'}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center justify-between p-3.5 hover:bg-stone-50 dark:hover:bg-zinc-800 transition-colors group"
+                                    >
+                                        <span className="text-sm text-stone-500 dark:text-zinc-400">{t('homepage') || 'Homepage'}</span>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-sm font-medium text-stone-700 dark:text-zinc-200 group-hover:text-orange-500 transition-colors">Safphere/opencowork</span>
+                                            <ExternalLink size={14} className="text-stone-400 dark:text-zinc-500 group-hover:text-orange-500 transition-colors" />
+                                        </div>
+                                    </a>
+                                </div>
+                                <div className="space-y-4">
+                                    <button
+                                        onClick={handleCheckUpdate}
+                                        disabled={checkingUpdate}
+                                        className="px-4 py-2 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:opacity-50 flex items-center gap-2 mx-auto"
+                                    >
+                                        {checkingUpdate && <Loader2 size={14} className="animate-spin" />}
+                                        {checkingUpdate ? t('checking') : t('checkUpdate')}
+                                    </button>
+
+                                    {updateInfo && (
+                                        <div className={`text-sm ${updateInfo.hasUpdate ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'} animate-in fade-in slide-in-from-top-2`}>
+                                            {updateInfo.hasUpdate ? (
+                                                <div className="flex flex-col items-center gap-2">
+                                                    <p>{t('newVersion')} v{updateInfo.latestVersion}</p>
+                                                    <a
+                                                        href={updateInfo.releaseUrl}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="text-orange-500 hover:underline font-medium flex items-center gap-1"
+                                                    >
+                                                        {t('download')} <ExternalLink size={12} />
+                                                    </a>
+                                                </div>
+                                            ) : (
+                                                <p>{t('upToDate')}</p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <p className="text-xs text-stone-400 dark:text-zinc-600 max-w-xs leading-relaxed">
+                                    {t('aboutDesc') || 'Your Digital Coworker for specialized tasks.'}
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </div>
-            </div>
+            </div >
 
-            {/* Skill Editor Modal */}
-            {showSkillEditor && (
-                <SkillEditor
-                    filename={editingSkill}
-                    readOnly={viewingSkill}
-                    onClose={() => {
-                        setShowSkillEditor(false);
-                        setViewingSkill(false);
-                    }}
-                    onSave={refreshSkills}
-                />
-            )}
-        </div>
+            {/* Modals */}
+            {
+                showSkillEditor && (
+                    <SkillEditor
+                        filename={editingSkill}
+                        readOnly={viewingSkill}
+                        onClose={() => {
+                            setShowSkillEditor(false);
+                            setEditingSkill(null);
+                            setViewingSkill(false);
+                        }}
+                        onSave={() => refreshSkills()}
+                    />
+                )
+            }
+        </div >
     );
 }

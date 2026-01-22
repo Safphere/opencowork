@@ -41,6 +41,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: create-release
     if: always() && needs.create-release.result == 'success'
+    permissions:
+      contents: write
 
     strategy:
       matrix:

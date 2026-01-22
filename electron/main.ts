@@ -63,7 +63,8 @@ if (VITE_DEV_SERVER_URL) {
 let mainWin: BrowserWindow | null = null
 let floatingBallWin: BrowserWindow | null = null
 let tray: Tray | null = null
-let agent: AgentRuntime | null = null
+let mainAgent: AgentRuntime | null = null  // Agent for main window
+let floatingBallAgent: AgentRuntime | null = null  // Independent agent for floating ball
 
 // Ball state
 let isBallExpanded = false
@@ -71,8 +72,22 @@ const BALL_SIZE = 64
 const EXPANDED_WIDTH = 340    // Match w-80 (320px) + padding
 const EXPANDED_HEIGHT = 320   // Compact height for less dramatic expansion
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   app.isQuitting = true
+  // Clean up both agent resources
+  const agents = [mainAgent, floatingBallAgent].filter((agent): agent is AgentRuntime => agent !== null)
+  if (agents.length > 0) {
+    console.log('[Main] Cleaning up agent resources...');
+    for (const agentInstance of agents) {
+      try {
+        await agentInstance.dispose();
+      } catch (err) {
+        console.error('[Main] Error disposing agent:', err);
+      }
+    }
+    mainAgent = null;
+    floatingBallAgent = null;
+  }
 })
 
 app.on('window-all-closed', () => {
@@ -80,6 +95,15 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+// [Fix] Prevent crash on EPIPE (broken pipe) when child processes die unexpectedly during reload
+process.on('uncaughtException', (err: any) => {
+  if (err.code === 'EPIPE' || err.message?.includes('EPIPE')) {
+    console.warn('[Main] Detected EPIPE error (likely from MCP child process). Ignoring to prevent crash.');
+    return;
+  }
+  console.error('Uncaught Exception:', err);
+});
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
@@ -106,8 +130,18 @@ app.whenReady().then(() => {
   createMainWindow()
   createFloatingBallWindow()
 
-  // 3. Initialize agent AFTER windows are created
+  // 3. Built-in skills are now loaded async by SkillManager (inside initializeAgent)
+  // ensureBuiltinSkills() - Removed
+
+
+  // 4. Initialize agent AFTER windows are created
   initializeAgent()
+
+  // 4.5 Clean up empty sessions on startup
+  sessionStore.cleanupEmptySessions()
+
+  // 4.6 Ensure built-in MCP config
+  ensureBuiltinMcpConfig()
 
   // 4. Create system tray
   createTray()
@@ -140,13 +174,17 @@ app.whenReady().then(() => {
 
 // IPC Handlers
 
-ipcMain.handle('agent:send-message', async (_event, message: string | { content: string, images: string[] }) => {
-  if (!agent) throw new Error('Agent not initialized')
-  return await agent.processUserMessage(message)
+ipcMain.handle('agent:send-message', async (event, message: string | { content: string, images: string[] }) => {
+  // Determine which agent to use based on sender window
+  const targetAgent = event.sender === floatingBallWin?.webContents ? floatingBallAgent : mainAgent
+  if (!targetAgent) throw new Error('Agent not initialized')
+  return await targetAgent.processUserMessage(message)
 })
 
-ipcMain.handle('agent:abort', () => {
-  agent?.abort()
+ipcMain.handle('agent:abort', (event) => {
+  // Determine which agent to abort based on sender window
+  const targetAgent = event.sender === floatingBallWin?.webContents ? floatingBallAgent : mainAgent
+  targetAgent?.abort()
 })
 
 ipcMain.handle('agent:confirm-response', (_, { id, approved, remember, tool, path }: { id: string, approved: boolean, remember?: boolean, tool?: string, path?: string }) => {
@@ -154,13 +192,18 @@ ipcMain.handle('agent:confirm-response', (_, { id, approved, remember, tool, pat
     configStore.addPermission(tool, path)
     console.log(`[Permission] Saved: ${tool} for path: ${path || '*'}`)
   }
-  agent?.handleConfirmResponse(id, approved)
+  // Both agents can handle confirmations (they share the same permission requests)
+  mainAgent?.handleConfirmResponse(id, approved)
+  floatingBallAgent?.handleConfirmResponse(id, approved)
 })
 
-ipcMain.handle('agent:new-session', () => {
-  agent?.clearHistory()
-  const session = sessionStore.createSession()
-  return { success: true, sessionId: session.id }
+ipcMain.handle('agent:new-session', (event) => {
+  // Determine which agent to use based on sender window
+  const targetAgent = event.sender === floatingBallWin?.webContents ? floatingBallAgent : mainAgent
+  targetAgent?.clearHistory()
+  // Don't create session immediately - wait for actual messages
+  // This prevents empty sessions from cluttering the history
+  return { success: true, sessionId: null }
 })
 
 // Session Management
@@ -172,26 +215,41 @@ ipcMain.handle('session:get', (_, id: string) => {
   return sessionStore.getSession(id)
 })
 
-ipcMain.handle('session:load', (_, id: string) => {
+ipcMain.handle('session:load', (event, id: string) => {
   const session = sessionStore.getSession(id)
-  if (session && agent) {
-    agent.loadHistory(session.messages)
+  // Determine which agent to use based on sender window
+  const targetAgent = event.sender === floatingBallWin?.webContents ? floatingBallAgent : mainAgent
+  if (session && targetAgent) {
+    targetAgent.loadHistory(session.messages)
     sessionStore.setCurrentSession(id)
     return { success: true }
   }
   return { error: 'Session not found' }
 })
 
-ipcMain.handle('session:save', (_, messages: Anthropic.MessageParam[]) => {
-  const currentId = sessionStore.getCurrentSessionId()
-  if (currentId) {
-    sessionStore.updateSession(currentId, messages)
-    return { success: true }
+ipcMain.handle('session:save', (event, messages: Anthropic.MessageParam[]) => {
+  // Determine which window is making the request
+  const isFloatingBall = event.sender === floatingBallWin?.webContents
+
+  // Get the appropriate current session ID based on window
+  const currentId = sessionStore.getSessionId(isFloatingBall)
+
+  console.log(`[Session] Saving session for ${isFloatingBall ? 'floating ball' : 'main window'}: ${messages.length} messages`)
+
+  try {
+    // Use the smart save method that only saves if there's meaningful content
+    const sessionId = sessionStore.saveSession(currentId, messages)
+
+    // Update the appropriate current session ID
+    if (sessionId) {
+      sessionStore.setSessionId(sessionId, isFloatingBall)
+    }
+
+    return { success: true, sessionId: sessionId || undefined }
+  } catch (error) {
+    console.error('[Session] Error saving session:', error)
+    return { success: false, error: (error as Error).message }
   }
-  // Create new session if none exists
-  const session = sessionStore.createSession()
-  sessionStore.updateSession(session.id, messages)
-  return { success: true, sessionId: session.id }
 })
 
 ipcMain.handle('session:delete', (_, id: string) => {
@@ -242,16 +300,100 @@ ipcMain.handle('agent:set-working-dir', (_, folderPath: string) => {
 
 ipcMain.handle('config:get-all', () => configStore.getAll())
 ipcMain.handle('config:set-all', (_, cfg) => {
-  if (cfg.apiKey) configStore.setApiKey(cfg.apiKey)
-  if (cfg.apiUrl) configStore.setApiUrl(cfg.apiUrl)
-  if (cfg.model) configStore.setModel(cfg.model)
-  configStore.set('authorizedFolders', cfg.authorizedFolders || [])
-  configStore.setNetworkAccess(cfg.networkAccess || false)
-  if (cfg.shortcut) configStore.set('shortcut', cfg.shortcut)
+  configStore.setAll(cfg)
 
-  // Reinitialize agent
-  initializeAgent()
+  // Hot-Swap capability: Update both agents without destroying context
+  const agents = [mainAgent, floatingBallAgent].filter((agent): agent is AgentRuntime => agent !== null)
+  agents.forEach(agentInstance => {
+    agentInstance.updateConfig(
+      configStore.getModel(),
+      configStore.getApiUrl(),
+      configStore.getApiKey()
+    );
+  });
+
+  // If no agents exist, initialize them
+  if (!mainAgent && !floatingBallAgent) {
+    initializeAgent();
+  }
 })
+
+ipcMain.handle('config:test-connection', async (_, { apiKey, apiUrl, model }) => {
+  try {
+    console.log(`[Config] Testing connection to ${apiUrl} with model ${model}`);
+    const tempClient = new Anthropic({
+      apiKey,
+      baseURL: apiUrl || 'https://api.anthropic.com'
+    });
+
+    const response = await tempClient.messages.create({
+      model: model,
+      max_tokens: 10,
+      messages: [{ role: 'user', content: 'Hello' }]
+    });
+
+    console.log('[Config] Test successful:', response.id);
+    return { success: true, message: 'Connection successful!' };
+  } catch (error: any) {
+    console.error('[Config] Test failed:', error);
+    return { success: false, message: error.message || 'Connection failed' };
+  }
+})
+
+ipcMain.handle('app:info', () => {
+  return {
+    name: 'OpenCowork', // app.getName() might be lowercase 'opencowork'
+    version: app.getVersion(),
+    author: 'Safphere', // Hardcoded from package.json
+    homepage: 'https://github.com/Safphere/opencowork'
+  };
+})
+
+ipcMain.handle('app:check-update', async () => {
+  try {
+    const currentVersion = app.getVersion();
+    // Use user agent to comply with GitHub API reqs
+    const response = await fetch('https://api.github.com/repos/Safphere/opencowork/releases/latest', {
+      headers: { 'User-Agent': 'OpenCowork-App' }
+    });
+
+    if (!response.ok) throw new Error('Failed to fetch release info');
+
+    const data = await response.json();
+    const latestTag = data.tag_name || ''; // e.g. "v1.0.4"
+    const latestVersion = latestTag.replace(/^v/, '');
+
+    // Simple semver compare (assuming strict X.Y.Z)
+    // Returns true if latest > current
+    const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+
+    return {
+      success: true,
+      hasUpdate,
+      currentVersion,
+      latestVersion,
+      latestTag,
+      releaseUrl: data.html_url
+    };
+  } catch (error: any) {
+    console.error('Update check failed:', error);
+    return { success: false, error: error.message };
+  }
+})
+
+// Helper for version comparison
+function compareVersions(v1: string, v2: string) {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+    if (p1 > p2) return 1;
+    if (p1 < p2) return -1;
+  }
+  return 0;
+}
 
 // Shortcut update handler
 ipcMain.handle('shortcut:update', (_, newShortcut: string) => {
@@ -320,6 +462,27 @@ ipcMain.handle('floating-ball:move', (_, { deltaX, deltaY }: { deltaX: number, d
 })
 
 // Window controls for custom titlebar
+ipcMain.handle('floating-ball:set-height', (_, arg: number | { height: number, anchorBottom?: boolean }) => {
+  if (!floatingBallWin) return
+
+  const targetHeight = typeof arg === 'number' ? arg : arg.height
+  const anchorBottom = typeof arg === 'object' && arg.anchorBottom
+
+  const bounds = floatingBallWin.getBounds()
+
+  if (anchorBottom) {
+    const newY = bounds.y + bounds.height - targetHeight
+    floatingBallWin.setBounds({
+      x: bounds.x,
+      y: Math.max(0, newY), // Safety clamp
+      width: bounds.width,
+      height: targetHeight
+    })
+  } else {
+    floatingBallWin.setSize(bounds.width, targetHeight)
+  }
+})
+
 ipcMain.handle('window:minimize', () => mainWin?.minimize())
 ipcMain.handle('window:maximize', () => {
   if (mainWin?.isMaximized()) {
@@ -330,8 +493,53 @@ ipcMain.handle('window:maximize', () => {
 })
 ipcMain.handle('window:close', () => mainWin?.hide())
 
+
 // MCP Configuration Handlers
 const mcpConfigPath = path.join(os.homedir(), '.opencowork', 'mcp.json');
+
+// Ensure built-in MCP config exists
+function ensureBuiltinMcpConfig() {
+  try {
+    // If config already exists, do nothing
+    if (fs.existsSync(mcpConfigPath)) return;
+
+    console.log('[MCP] Initializing default configuration...');
+
+    // Determine source path based on environment
+    let sourcePath = '';
+
+    if (app.isPackaged) {
+      // Production: resources/mcp/builtin-mcp.json
+      // Try electron-builder standard resources path
+      sourcePath = path.join(process.resourcesPath, 'mcp', 'builtin-mcp.json');
+
+      // Fallback: Check inside resources folder (some setups)
+      if (!fs.existsSync(sourcePath)) {
+        sourcePath = path.join(process.resourcesPath, 'resources', 'mcp', 'builtin-mcp.json');
+      }
+    } else {
+      // Development: resources/mcp/builtin-mcp.json (relative to root)
+      sourcePath = path.join(process.env.APP_ROOT!, 'resources', 'mcp', 'builtin-mcp.json');
+    }
+
+    if (fs.existsSync(sourcePath)) {
+      const configContent = fs.readFileSync(sourcePath, 'utf-8');
+
+      // Ensure directory exists
+      const configDir = path.dirname(mcpConfigPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
+      fs.writeFileSync(mcpConfigPath, configContent, 'utf-8');
+      console.log(`[MCP] Created default config at ${mcpConfigPath}`);
+    } else {
+      console.warn(`[MCP] Could not find builtin-mcp.json at ${sourcePath}`);
+    }
+  } catch (err) {
+    console.error('[MCP] Failed to ensure builtin config:', err);
+  }
+}
 
 ipcMain.handle('mcp:get-config', async () => {
   try {
@@ -350,9 +558,10 @@ ipcMain.handle('mcp:save-config', async (_, content: string) => {
     fs.writeFileSync(mcpConfigPath, content, 'utf-8');
 
     // Update agent services
-    if (agent) {
+    if (mainAgent || floatingBallAgent) {
       // We might need to reload MCP client here, but for now just saving is enough.
       // The user might need to restart app or we can add a reload capability later.
+      // Note: Both agents will pick up the new config on their next initialization
     }
     return { success: true };
   } catch (e) {
@@ -390,6 +599,9 @@ const getBuiltinSkillNames = () => {
   } catch (e) { console.error(e) }
   return [];
 };
+
+// ensureBuiltinSkills logic moved to SkillManager (async) to prevent startup blocking
+// See SkillManager.initializeDefaults()
 
 ipcMain.handle('skills:list', async () => {
   try {
@@ -477,36 +689,79 @@ ipcMain.handle('skills:delete', async (_, skillId: string) => {
   }
 });
 
+ipcMain.handle('skills:open-folder', () => {
+  if (fs.existsSync(skillsDir)) {
+    shell.openPath(skillsDir);
+  } else {
+    fs.mkdirSync(skillsDir, { recursive: true });
+    shell.openPath(skillsDir);
+  }
+});
+
 
 function initializeAgent() {
   const apiKey = configStore.getApiKey() || process.env.ANTHROPIC_API_KEY
+  const model = configStore.getModel()
+  const apiUrl = configStore.getApiUrl()
+
   if (apiKey && mainWin) {
-    agent = new AgentRuntime(apiKey, mainWin, configStore.getModel(), configStore.getApiUrl())
-    // Add floating ball window to receive updates
-    if (floatingBallWin) {
-      agent.addWindow(floatingBallWin)
+    // Dispose previous agents if they exist
+    if (mainAgent) {
+      console.log('Disposing previous main agent instance...');
+      mainAgent.dispose();
     }
-    (global as Record<string, unknown>).agent = agent
+    // Note: Don't dispose floatingBallAgent here as it will be created independently in createFloatingBallWindow
 
-    // Trigger async initialization for MCP and Skills
-    agent.initialize().catch(err => console.error('Agent initialization failed:', err));
+    // Create separate agent for main window only
+    mainAgent = new AgentRuntime(apiKey, mainWin, model, apiUrl);
 
-    console.log('Agent initialized with model:', configStore.getModel())
-    console.log('API URL:', configStore.getApiUrl())
+    // Initialize the agent asynchronously
+    mainAgent.initialize().then(() => {
+      console.log('Main agent initialized with model:', model);
+    }).catch(err => {
+      console.error('Main agent initialization failed:', err);
+    });
+
+    // Set global references for backward compatibility
+    (global as Record<string, unknown>).agent = mainAgent;
+    (global as Record<string, unknown>).mainAgent = mainAgent;
+
+    console.log('API URL:', apiUrl)
   } else {
     console.warn('No API Key found. Please configure in Settings.')
   }
 }
 
+// Pre-compressed tray icon (16x16 PNG, base64 encoded) - Orange circle with "OC"
+const TRAY_ICON_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAHhJREFUOE+jtU1Ow0AMBue+b9J6Vd6AQBjK4WQgpOdQKjqGe6e0Hy+VL3y3c2dndmZmZkX1yCRbP80gnzMDNMgzDKK1/Wo4xigrlYpDAMI1o1jI2aUAJwzDmKYpRVEcx3mWZVhZWYNAv99f13UBKJXKMAwr+igCVFWVY8zyJEmff33P8xznPMN5nhKJRCgWi9i2zWq1otPpiEajQbPZRNf1RiAQIC0Wi7Esi5mYJMk0TVmW5bZtCCGQiGSYJkmSzWbDZrOhWCzCbreH1tYUpaO9DABmc/m+FqGfKwAAAABJRU5ErkJggg=='
+
 function createTray() {
   try {
-    const iconPath = getIconPath()
-    console.log('Tray icon path:', iconPath)
-    tray = new Tray(iconPath)
+    console.log('Creating system tray...')
+
+    // Use pre-compressed base64 icon (instant, no processing needed)
+    const trayIconBuffer = Buffer.from(TRAY_ICON_BASE64, 'base64')
+    const trayIcon = nativeImage.createFromBuffer(trayIconBuffer)
+
+    if (trayIcon.isEmpty()) {
+      throw new Error('Failed to create tray icon from buffer')
+    }
+
+    tray = new Tray(trayIcon)
+    console.log('✅ System tray created successfully')
+
   } catch (e) {
-    console.error('Failed to load tray icon:', e)
-    const blankIcon = nativeImage.createEmpty()
-    tray = new Tray(blankIcon)
+    console.error('❌ Failed to create system tray:', e)
+    // Try fallback to file-based icon
+    try {
+      const iconPath = getIconPath()
+      console.log('Trying fallback icon:', iconPath)
+      tray = new Tray(iconPath)
+      console.log('✅ System tray created with fallback icon')
+    } catch (fallbackError) {
+      console.error('❌ All tray creation attempts failed:', fallbackError)
+      return
+    }
   }
 
   tray.setToolTip('OpenCowork')
@@ -547,6 +802,8 @@ function createTray() {
       }
     }
   })
+
+  console.log('✅ Tray menu and click handlers configured')
 }
 
 function createMainWindow() {
@@ -566,25 +823,118 @@ function createMainWindow() {
     console.error('Failed to load icon:', e)
   }
 
+  // Mac-specific configuration
+  const isMac = process.platform === 'darwin'
+
   mainWin = new BrowserWindow({
     width: 480,
     height: 720,
     minWidth: 400,
     minHeight: 600,
     icon: iconImage || iconPath,
-    frame: false,
-    titleBarStyle: 'hiddenInset',
+    frame: false, // Custom frame for consistent look
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden', // Mac: inset buttons, others: hidden
+    backgroundColor: '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: true
     },
     show: false,
   })
 
-  // Remove menu bar
-  mainWin.setMenu(null)
+  // Platform-specific menu configuration
+  if (isMac) {
+    // Mac: Create native application menu
+    const template: any[] = [
+      {
+        label: app.getName(),
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit' }
+        ]
+      },
+      {
+        label: 'File',
+        submenu: [
+          { role: 'close' }
+        ]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' }
+        ]
+      },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' },
+          { role: 'forceReload' },
+          { role: 'toggleDevTools' },
+          { type: 'separator' },
+          { role: 'resetZoom' },
+          { role: 'zoomIn' },
+          { role: 'zoomOut' },
+          { type: 'separator' },
+          { role: 'togglefullscreen' }
+        ]
+      },
+      {
+        label: 'Window',
+        submenu: [
+          { role: 'minimize' },
+          { role: 'zoom' },
+          { type: 'separator' },
+          { role: 'front' }
+        ]
+      }
+    ]
+
+    const menu = Menu.buildFromTemplate(template)
+    Menu.setApplicationMenu(menu)
+
+    // Mac-specific: Ensure app doesn't dock when all windows are closed
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow()
+      } else {
+        mainWin?.show()
+      }
+    })
+
+    console.log('[Mac] Application menu configured')
+  } else {
+    // Windows/Linux: No menu bar
+    mainWin.setMenu(null)
+    console.log('[Windows/Linux] Menu bar removed')
+  }
 
   mainWin.once('ready-to-show', () => {
     console.log('Main window ready.')
+  })
+
+  // Handle external links
+  mainWin.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https:') || url.startsWith('http:')) {
+      shell.openExternal(url)
+      return { action: 'deny' }
+    }
+    return { action: 'allow' }
   })
 
   mainWin.on('close', (event) => {
@@ -632,16 +982,31 @@ function createFloatingBallWindow() {
   }
 
   floatingBallWin.on('closed', () => {
-    if (agent && floatingBallWin) {
-      agent.removeWindow(floatingBallWin)
+    // Clean up floating ball agent when window is closed
+    if (floatingBallAgent) {
+      floatingBallAgent.dispose();
+      floatingBallAgent = null;
     }
     floatingBallWin = null
   })
 
-  // Add to agent after creation
+  // Create independent agent for floating ball after window is created
   floatingBallWin.webContents.on('did-finish-load', () => {
-    if (agent && floatingBallWin) {
-      agent.addWindow(floatingBallWin)
+    if (!floatingBallAgent) {
+      // Create floating ball agent with same config as main agent
+      const apiKey = configStore.getApiKey() || process.env.ANTHROPIC_API_KEY
+      if (apiKey && floatingBallWin) {
+        floatingBallAgent = new AgentRuntime(apiKey, floatingBallWin, configStore.getModel(), configStore.getApiUrl());
+
+        // Initialize the agent asynchronously
+        floatingBallAgent.initialize().then(() => {
+          console.log('Floating ball agent created independently');
+        }).catch(err => {
+          console.error('Floating ball agent initialization failed:', err);
+        });
+
+        (global as Record<string, unknown>).floatingBallAgent = floatingBallAgent
+      }
     }
   })
 }
@@ -649,45 +1014,56 @@ function createFloatingBallWindow() {
 function toggleFloatingBallExpanded() {
   if (!floatingBallWin) return
 
-  const [currentX, currentY] = floatingBallWin.getPosition()
+  // Get current bounds BEFORE any state changes
+  const bounds = floatingBallWin.getBounds()
+  const currentX = bounds.x
+  const currentY = bounds.y
+  const currentWidth = bounds.width
+
+  // Use workArea to respect taskbars/docks
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
 
   if (isBallExpanded) {
-    // Collapse - Calculate where ball should go based on current expanded window position
-    // Ball's right edge should align with expanded panel's right edge
-    // Ball position = (expanded right edge - BALL_SIZE), same Y
-    const ballX = currentX + EXPANDED_WIDTH - BALL_SIZE
-    const ballY = currentY
+    // Collapse to ball size
+    // Ball should be at the right edge of the expanded window
+    const newWidth = BALL_SIZE
+    const newX = currentX + currentWidth - newWidth
+    const newY = currentY
 
     // Clamp to screen bounds
-    const finalX = Math.max(0, Math.min(ballX, screenWidth - BALL_SIZE))
-    const finalY = Math.max(0, Math.min(ballY, screenHeight - BALL_SIZE))
+    const clampedX = Math.max(0, Math.min(newX, screenWidth - BALL_SIZE))
+    const clampedY = Math.max(0, Math.min(newY, screenHeight - BALL_SIZE))
 
-    floatingBallWin.setSize(BALL_SIZE, BALL_SIZE)
-    floatingBallWin.setPosition(finalX, finalY)
+    // Use setBounds to set position and size atomically (prevents flicker)
+    floatingBallWin.setBounds({
+      x: Math.round(clampedX),
+      y: Math.round(clampedY),
+      width: BALL_SIZE,
+      height: BALL_SIZE
+    })
     isBallExpanded = false
   } else {
-    // Expand
-    // Horizontal-only expansion: Keep Y same, expand LEFT from ball
+    // Expand to conversation view
+    // Window expands to the LEFT, keeping Y position the same
+    const newWidth = EXPANDED_WIDTH
+    const newX = currentX + currentWidth - newWidth
+    const newY = currentY
 
-    // Keep Y the same - no vertical movement
-    // Only move X to the left so ball's right edge stays at same position
-    // Ball's right edge = currentX + BALL_SIZE
-    // Panel's right edge = newX + EXPANDED_WIDTH = currentX + BALL_SIZE
-    // So: newX = currentX + BALL_SIZE - EXPANDED_WIDTH
+    // Clamp to screen bounds
+    const clampedX = Math.max(0, newX)
+    const clampedY = Math.max(0, newY)
 
-    let newX = currentX + BALL_SIZE - EXPANDED_WIDTH
-    let newY = currentY  // Keep Y the same - NO upward movement
-
-    // Ensure not going negative
-    newX = Math.max(0, newX)
-    newY = Math.max(0, newY)
-
-    floatingBallWin.setSize(EXPANDED_WIDTH, EXPANDED_HEIGHT)
-    floatingBallWin.setPosition(newX, newY)
+    // Use setBounds to set position and size atomically (prevents flicker)
+    floatingBallWin.setBounds({
+      x: Math.round(clampedX),
+      y: Math.round(clampedY),
+      width: EXPANDED_WIDTH,
+      height: EXPANDED_HEIGHT
+    })
     isBallExpanded = true
   }
 
+  // Notify renderer of state change AFTER window bounds are updated
   floatingBallWin.webContents.send('floating-ball:state-changed', isBallExpanded)
 }
 

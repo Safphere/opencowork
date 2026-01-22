@@ -71,55 +71,59 @@ function App() {
 
   // Main App - Narrow vertical layout
   return (
-    <div className="h-screen w-full bg-[#FAF8F5] flex flex-col overflow-hidden font-sans">
+    <div className="h-screen w-full bg-[#FAF8F5] dark:bg-zinc-950 flex flex-col overflow-hidden font-sans text-stone-900 dark:text-zinc-100">
       {/* Custom Titlebar */}
       <header
-        className="h-10 border-b border-stone-200/80 flex items-center justify-between px-3 bg-white/80 backdrop-blur-sm shrink-0"
+        className={`h-10 border-b border-stone-200/80 dark:border-zinc-800 flex items-center justify-between bg-white/80 dark:bg-zinc-900/80 backdrop-blur-sm shrink-0 transition-colors ${navigator.userAgent.includes('Mac') ? 'pl-20 pr-3' : 'px-3'
+          }`}
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <img src="./icon.png" alt="Logo" className="w-6 h-6 rounded-md object-cover" />
-          <span className="font-medium text-stone-700 text-sm">OpenCowork</span>
+          <span className="font-medium text-stone-700 dark:text-zinc-200 text-sm">OpenCowork</span>
         </div>
 
-        <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          {/* Window Controls */}
-          <button
-            onClick={() => window.ipcRenderer.invoke('window:minimize')}
-            className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
-            title="Minimize"
-          >
-            <Minus size={14} />
-          </button>
-          <button
-            onClick={() => window.ipcRenderer.invoke('window:maximize')}
-            className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors"
-            title="Maximize"
-          >
-            <Square size={12} />
-          </button>
-          <button
-            onClick={() => window.ipcRenderer.invoke('window:close')}
-            className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-red-100 hover:text-red-500 rounded transition-colors"
-            title="Close"
-          >
-            <X size={14} />
-          </button>
-        </div>
+        {!navigator.userAgent.includes('Mac') && (
+          <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            {/* Window Controls - Windows/Linux Only */}
+            <button
+              onClick={() => window.ipcRenderer.invoke('window:minimize')}
+              className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800 rounded transition-colors"
+              title="Minimize"
+            >
+              <Minus size={14} />
+            </button>
+            <button
+              onClick={() => window.ipcRenderer.invoke('window:maximize')}
+              className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800 rounded transition-colors"
+              title="Maximize"
+            >
+              <Square size={12} />
+            </button>
+            <button
+              onClick={() => window.ipcRenderer.invoke('window:close')}
+              className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-red-100 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400 dark:hover:bg-red-900/30 rounded transition-colors"
+              title="Close"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-hidden">
-        {showSettings ? (
-          <SettingsView onClose={() => setShowSettings(false)} />
-        ) : (
-          <CoworkView
-            history={history}
-            onSendMessage={handleSendMessage}
-            onAbort={handleAbort}
-            isProcessing={isProcessing}
-            onOpenSettings={() => setShowSettings(true)}
-          />
+      <main className="flex-1 overflow-hidden relative">
+        <CoworkView
+          history={history}
+          onSendMessage={handleSendMessage}
+          onAbort={handleAbort}
+          isProcessing={isProcessing}
+          onOpenSettings={() => setShowSettings(true)}
+        />
+        {showSettings && (
+          <div className="absolute inset-0 z-50">
+            <SettingsView onClose={() => setShowSettings(false)} />
+          </div>
         )}
       </main>
 

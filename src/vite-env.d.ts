@@ -12,5 +12,6 @@ export interface IpcRendererApi {
 declare global {
     interface Window {
         ipcRenderer: IpcRendererApi
+        platform: NodeJS.Platform
     }
 }

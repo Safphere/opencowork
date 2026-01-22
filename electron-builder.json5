@@ -10,7 +10,7 @@
   },
   "publish": {
     "provider": "github",
-    "owner": "Safphere",
+    "owner": "MrCatAI",
     "repo": "opencowork",
     "releaseType": "release"
   },
@@ -22,13 +22,44 @@
     {
       "from": "public/icon.png",
       "to": "icon.png"
+    },
+    {
+      "from": "resources/skills",
+      "to": "skills",
+      "filter": "**/*"
+    },
+    {
+      "from": "resources/mcp",
+      "to": "mcp",
+      "filter": "**/*"
     }
   ],
   "mac": {
     "target": [
       "dmg"
     ],
-    "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
+    "artifactName": "${productName}-Mac-${version}-Installer.${ext}",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.plist",
+    "icon": "resources/icons/icon.icns",
+    "category": "public.app-category.productivity"
+  },
+  "dmg": {
+    "icon": "resources/icons/icon.icns",
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ]
   },
   "win": {
     "target": [
@@ -45,7 +76,7 @@
         ]
       }
     ],
-    "icon": "public/icon.png"
+    "icon": "resources/icons/icon.ico"
   },
   "nsis": {
     "oneClick": false,
@@ -64,6 +95,7 @@
     ],
     "maintainer": "Safphere <a976466014@gmail.com>",
     "category": "Utility",
+    "icon": "public/icon.png",
     "artifactName": "${productName}-Linux-${version}.${ext}"
   }
 }
