@@ -43,11 +43,11 @@
     "gatekeeperAssess": false,
     "entitlements": "build/entitlements.mac.plist",
     "entitlementsInherit": "build/entitlements.mac.plist",
-    "icon": "build/icon.icns",
+    "icon": "resources/icons/icon.icns",
     "category": "public.app-category.productivity"
   },
   "dmg": {
-    "icon": "build/icon.icns",
+    "icon": "resources/icons/icon.icns",
     "contents": [
       {
         "x": 130,
@@ -76,7 +76,7 @@
         ]
       }
     ],
-    "icon": "build/icon.ico"
+    "icon": "resources/icons/icon.ico"
   },
   "nsis": {
     "oneClick": false,
