@@ -15,24 +15,20 @@ export type AgentMessage = {
     id?: string;
 };
 
-export interface AgentSession {
-    id: string;
-    history: Anthropic.MessageParam[];
-    artifacts: { path: string; name: string; type: string }[];
-    isProcessing: boolean;
-    abortController: AbortController | null;
-}
-
 export class AgentRuntime {
     private anthropic: Anthropic;
-    private sessions: Map<string, AgentSession> = new Map();
+    private history: Anthropic.MessageParam[] = [];
     private windows: BrowserWindow[] = [];
     private fsTools: FileSystemTools;
     private skillManager: SkillManager;
     private mcpService: MCPClientService;
+    private abortController: AbortController | null = null;
+    private isProcessing = false;
     private pendingConfirmations: Map<string, { resolve: (approved: boolean) => void }> = new Map();
+    private artifacts: { path: string; name: string; type: string }[] = [];
 
     private model: string;
+    private lastProcessTime: number = 0;
 
     constructor(apiKey: string, window: BrowserWindow, model: string = 'claude-3-5-sonnet-20241022', apiUrl: string = 'https://api.anthropic.com') {
         this.anthropic = new Anthropic({ apiKey, baseURL: apiUrl });
@@ -41,20 +37,7 @@ export class AgentRuntime {
         this.fsTools = new FileSystemTools();
         this.skillManager = new SkillManager();
         this.mcpService = new MCPClientService();
-    }
-
-    // Helper to get or create session context
-    private getSession(sessionId: string): AgentSession {
-        if (!this.sessions.has(sessionId)) {
-            this.sessions.set(sessionId, {
-                id: sessionId,
-                history: [],
-                artifacts: [],
-                isProcessing: false,
-                abortController: null
-            });
-        }
-        return this.sessions.get(sessionId)!;
+        // Note: IPC handlers are now registered in main.ts, not here
     }
 
     // Add a window to receive updates (for floating ball)
@@ -107,30 +90,35 @@ export class AgentRuntime {
     }
 
     // Clear history for new session
-    public clearHistory(sessionId: string) {
-        const session = this.getSession(sessionId);
-        session.history = [];
-        session.artifacts = [];
-        this.notifyUpdate(sessionId);
+    public clearHistory() {
+        this.history = [];
+        this.artifacts = [];
+        this.notifyUpdate();
     }
 
     // Load history from saved session
-    public loadHistory(sessionId: string, messages: Anthropic.MessageParam[]) {
-        const session = this.getSession(sessionId);
-        session.history = messages;
-        session.artifacts = [];
-        this.notifyUpdate(sessionId);
+    public loadHistory(messages: Anthropic.MessageParam[]) {
+        this.history = messages;
+        this.artifacts = [];
+        this.notifyUpdate();
     }
 
-    public async processUserMessage(input: string | { content: string, images: string[] }, sessionId: string) {
-        const session = this.getSession(sessionId);
-
-        if (session.isProcessing) {
-            throw new Error('Agent is already processing a message in this session');
+    public async processUserMessage(input: string | { content: string, images: string[] }) {
+        // Auto-recover from stuck state if > 60 seconds have passed since start
+        if (this.isProcessing) {
+            if (Date.now() - this.lastProcessTime > 60000) {
+                console.warn('[AgentRuntime] Detected stale processing state (60s+). Auto-resetting.');
+                this.isProcessing = false;
+                this.abortController = null;
+            } else {
+                throw new Error('Agent is already processing a message');
+            }
         }
 
-        session.isProcessing = true;
-        session.abortController = new AbortController();
+        this.lastProcessTime = Date.now();
+
+        this.isProcessing = true;
+        this.abortController = new AbortController();
 
         try {
             await this.skillManager.loadSkills();
@@ -170,11 +158,11 @@ export class AgentRuntime {
             }
 
             // Add user message to history
-            session.history.push({ role: 'user', content: userContent });
-            this.notifyUpdate(sessionId);
+            this.history.push({ role: 'user', content: userContent });
+            this.notifyUpdate();
 
             // Start the agent loop
-            await this.runLoop(session);
+            await this.runLoop();
 
         } catch (error: unknown) {
             const err = error as { status?: number; message?: string };
@@ -182,28 +170,35 @@ export class AgentRuntime {
 
             // [Fix] Handle MiniMax/provider sensitive content errors gracefully
             if (err.status === 500 && (err.message?.includes('sensitive') || JSON.stringify(error).includes('1027'))) {
-                this.broadcast('agent:error', { sessionId, error: 'AI Provider Error: The generated content was flagged as sensitive and blocked by the provider.' });
+                this.broadcast('agent:error', 'AI Provider Error: The generated content was flagged as sensitive and blocked by the provider.');
             } else {
-                this.broadcast('agent:error', { sessionId, error: err.message || 'An unknown error occurred' });
+                this.broadcast('agent:error', err.message || 'An unknown error occurred');
             }
         } finally {
-            session.isProcessing = false;
-            session.abortController = null;
-            this.notifyUpdate(sessionId);
+            // Force reload MCP clients on next run if we had an error, to ensure fresh connection
+            if (this.isProcessing && this.abortController?.signal.aborted) {
+                // Was aborted, do nothing special
+            } else {
+                // For now, we don't force reload every time, but we ensure state is clear
+            }
+
+            this.isProcessing = false;
+            this.abortController = null;
+            this.notifyUpdate();
             // Broadcast done event to signal processing is complete
-            this.broadcast('agent:done', { sessionId, timestamp: Date.now() });
+            this.broadcast('agent:done', { timestamp: Date.now() });
         }
     }
 
-    private async runLoop(session: AgentSession) {
+    private async runLoop() {
         let keepGoing = true;
         let iterationCount = 0;
         const MAX_ITERATIONS = 30;
 
         while (keepGoing && iterationCount < MAX_ITERATIONS) {
             iterationCount++;
-            console.log(`[AgentRuntime] Loop iteration: ${iterationCount} for session ${session.id}`);
-            if (session.abortController?.signal.aborted) break;
+            console.log(`[AgentRuntime] Loop iteration: ${iterationCount}`);
+            if (this.abortController?.signal.aborted) break;
 
             const tools: Anthropic.Tool[] = [
                 ReadFileSchema,
@@ -222,71 +217,58 @@ export class AgentRuntime {
 
             const skillsDir = os.homedir() + '/.opencowork/skills';
             const systemPrompt = `
-<system_prompt>
-    <agent_profile>
-        You are OpenCowork, an advanced AI desktop assistant.
-        You are capable of executing complex tasks, managing files, and assisting with coding, research, and analysis.
-        You operate within a secure, local environment with controlled access to the user's selected directories.
-        **Key Capability**: You are deeply integrated with the ZAI ecosystem tools and have full access to local MCP servers.
-    </agent_profile>
+# OpenCowork Assistant System
 
-    <behavior_guidelines>
-        <tone>
-            - Professional, direct, and concise. Avoid excessive pleasantries.
-            - **Execution First**: Focus on completing the user's request efficiently.
-            - **Proactive Verification**: If a task relies on an external tool, verify it is available first.
-        </tone>
-        <formatting>
-            - Use Markdown for all responses.
-            - Write in clear prose. Avoid bullet points for documents unless specifically requested (e.g. for a summary list).
-        </formatting>
-    </behavior_guidelines>
+## Role Definition
+You are OpenCowork, an advanced AI desktop assistant designed for efficient task execution, file management, coding assistance, and research. You operate in a secure local environment with controlled access to user-selected directories and specialized tools.
 
-    <tool_usage_standards>
-        <file_handling>
-            - **Primary Workspace (Deliverables)**: The folder(s) listed in <context> below. 
-              - SAVE FINAL OUTPUTS HERE. This is the only place the user can easily see files.
-            - **Temporary Workspace (Scratchpad)**: Use \`os.tmpdir()\` or the current working directory ONLY for intermediate steps (e.g., extracting archives, temp scripts).
-            - **Strategy**: 
-              - Simple tasks: Write directly to Primary Workspace.
-              - Complex tasks: Build in Temp -> Validate -> Move to Primary.
-            - **SECURITY**: Do NOT access or modify files outside of the authorized directories listed in <context> unless explicitly instructed and authorized by the user.
-        </file_handling>
+## Core Behavioral Principles
 
-        <skills_policy>
-            **CRITICAL: SKILLS FIRST**
-            - You have access to specialized "Skills" in: \`${skillsDir}\`.
-            - **Procedure**: BEFORE performing a task (e.g., "Add MCP Server", "Write Document"), check for a relevant \`SKILL.md\`, read it, and follow it.
-            - **MCP Management**: Always refer to \`mcp_manager/SKILL.md\` for configuring servers (modifying \`mcp.json\`).
-        </skills_policy>
+### Communication Style
+- **Direct & Professional**: Be concise and purposeful. Avoid unnecessary pleasantries.
+- **Execution-Focused**: Prioritize completing tasks efficiently over extensive discussion.
+- **Proactive**: Verify tool availability before relying on them.
 
-        <mcp_tools>
-            - **Built-in Servers**: You have access to specialized servers like \`zai-mcp-server\` (Local) and \`web-search-prime\` (Search).
-            - **Integration**: Use these tools preferentially for search and local execution.
-            - **Namespace**: Tools are prefixed, e.g., \`web-search-prime__google_search\`.
-        </mcp_tools>
-    </tool_usage_standards>
+### Response Format
+- Use Markdown for all structured content
+- Prefer clear prose over bullet points for narrative content
+- Use bullet points only for lists, summaries, or when explicitly requested
 
-    <planning_requirement>
-        - For requests involving multiple steps, tools, or research, START with a <plan> block.
-        - Format:
-          <plan>
-            <task>[x] Step 1</task>
-            <task>[ ] Step 2</task>
-          </plan>
-    </planning_requirement>
+## Task Execution Guidelines
 
-    <context>
-        ${workingDirContext}
-        
-        **Skills Location**: \`${skillsDir}\`
-        
-        **Available Skills (Level 1 Metadata)**:
-        ${this.skillManager.getSkillMetadata().map(s => `- ${s.name}: ${s.description}`).join('\n        ')}
+### Planning & Execution
+**Internal Process (Not Visible to User):**
+- Mentally break down complex requests into clear, actionable steps
+- Identify required tools, dependencies, and potential obstacles
+- Plan the most efficient execution path before starting
 
-        **Active MCP Servers**: ${JSON.stringify(this.mcpService.getActiveServers())}
-    </context>
-</system_prompt>`;
+**External Output:**
+- Start directly with execution or brief acknowledgment
+- Provide natural progress updates during execution
+- Focus on completed work, not planning intentions
+- Use professional, results-oriented language
+
+### File Management
+- **Primary Workspace**: User-authorized directories (your main deliverable location)
+- **Temporary Workspace**: System temp directories for intermediate processing
+- **Security**: Never access files outside authorized directories without explicit permission
+
+### Tool Usage Protocol
+1. **Skills First**: Before any task, check for relevant skills in \`${skillsDir}\`
+2. **MCP Integration**: Leverage available MCP servers for enhanced capabilities
+3. **Tool Prefixes**: MCP tools use namespace prefixes (e.g., \`tool_name__action\`)
+
+## Current Context
+**Working Directory**: ${workingDirContext}
+**Skills Directory**: \`${skillsDir}\`
+
+**Available Skills**:
+${this.skillManager.getSkillMetadata().map(s => `- ${s.name}: ${s.description}`).join('\n')}
+
+**Active MCP Servers**: ${JSON.stringify(this.mcpService.getActiveServers())}
+
+---
+Remember: Plan internally, execute visibly. Focus on results, not process.`;
 
             console.log('Sending request to API...');
             console.log('Model:', this.model);
@@ -298,11 +280,11 @@ export class AgentRuntime {
                     model: this.model,
                     max_tokens: 131072,
                     system: systemPrompt,
-                    messages: session.history,
+                    messages: this.history,
                     stream: true,
                     tools: tools
                 } as any, {
-                    signal: session.abortController?.signal
+                    signal: this.abortController?.signal
                 });
 
                 const finalContent: Anthropic.ContentBlock[] = [];
@@ -310,7 +292,7 @@ export class AgentRuntime {
                 let textBuffer = "";
 
                 for await (const chunk of stream) {
-                    if (session.abortController?.signal.aborted) {
+                    if (this.abortController?.signal.aborted) {
                         stream.controller.abort();
                         break;
                     }
@@ -329,12 +311,12 @@ export class AgentRuntime {
                             if (chunk.delta.type === 'text_delta') {
                                 textBuffer += chunk.delta.text;
                                 // Broadcast streaming token to ALL windows
-                                this.broadcast('agent:stream-token', { sessionId: session.id, token: chunk.delta.text });
+                                this.broadcast('agent:stream-token', chunk.delta.text);
                             } else if ((chunk.delta as any).type === 'reasoning_content' || (chunk.delta as any).reasoning) {
                                 // Support for native "Thinking" models (DeepSeek/compatible args)
                                 const reasoningObj = chunk.delta as any;
                                 const text = reasoningObj.text || reasoningObj.reasoning || ""; // Adapt to provider
-                                this.broadcast('agent:stream-thinking', { sessionId: session.id, text });
+                                this.broadcast('agent:stream-thinking', text);
                             } else if (chunk.delta.type === 'input_json_delta' && currentToolUse) {
                                 currentToolUse.input += chunk.delta.partial_json;
                             }
@@ -376,14 +358,14 @@ export class AgentRuntime {
                 }
 
                 // If aborted, save any partial content that was generated
-                if (session.abortController?.signal.aborted) {
+                if (this.abortController?.signal.aborted) {
                     if (textBuffer) {
                         finalContent.push({ type: 'text', text: textBuffer + '\n\n[已中断]', citations: null });
                     }
                     if (finalContent.length > 0) {
                         const assistantMsg: Anthropic.MessageParam = { role: 'assistant', content: finalContent };
-                        session.history.push(assistantMsg);
-                        this.notifyUpdate(session.id);
+                        this.history.push(assistantMsg);
+                        this.notifyUpdate();
                     }
                     return; // Stop execution completely
                 }
@@ -395,15 +377,15 @@ export class AgentRuntime {
 
                 if (finalContent.length > 0) {
                     const assistantMsg: Anthropic.MessageParam = { role: 'assistant', content: finalContent };
-                    session.history.push(assistantMsg);
-                    this.notifyUpdate(session.id);
+                    this.history.push(assistantMsg);
+                    this.notifyUpdate();
 
                     const toolUses = finalContent.filter(c => c.type === 'tool_use');
                     if (toolUses.length > 0) {
                         const toolResults: Anthropic.ToolResultBlockParam[] = [];
                         for (const toolUse of toolUses) {
                             // Check abort before each tool execution
-                            if (session.abortController?.signal.aborted) {
+                            if (this.abortController?.signal.aborted) {
                                 console.log('[AgentRuntime] Aborted before tool execution');
                                 return;
                             }
@@ -430,8 +412,8 @@ export class AgentRuntime {
                                         if (approved) {
                                             result = await this.fsTools.writeFile(args);
                                             const fileName = args.path.split(/[\\/]/).pop() || 'file';
-                                            session.artifacts.push({ path: args.path, name: fileName, type: 'file' });
-                                            this.broadcast('agent:artifact-created', { session: session.id, path: args.path, name: fileName, type: 'file' });
+                                            this.artifacts.push({ path: args.path, name: fileName, type: 'file' });
+                                            this.broadcast('agent:artifact-created', { path: args.path, name: fileName, type: 'file' });
                                         } else {
                                             result = 'User denied the write operation.';
                                         }
@@ -495,8 +477,8 @@ ${skillInfo.instructions}
                             });
                         }
 
-                        session.history.push({ role: 'user', content: toolResults });
-                        this.notifyUpdate(session.id);
+                        this.history.push({ role: 'user', content: toolResults });
+                        this.notifyUpdate();
                     } else {
                         keepGoing = false;
                     }
@@ -506,7 +488,7 @@ ${skillInfo.instructions}
 
             } catch (loopError: unknown) {
                 // Check if this is an abort error - handle gracefully
-                if (session.abortController?.signal.aborted) {
+                if (this.abortController?.signal.aborted) {
                     console.log('[AgentRuntime] Request was aborted');
                     return; // Exit cleanly on abort
                 }
@@ -525,11 +507,11 @@ ${skillInfo.instructions}
                     console.log("Caught sensitive content error, asking Agent to retry...");
 
                     // Add a system-like user message to prompt the agent to fix its output
-                    session.history.push({
+                    this.history.push({
                         role: 'user',
                         content: `[SYSTEM ERROR] Your previous response was blocked by the safety filter (Error Code 1027: output new_sensitive). \n\nThis usually means the generated content contained sensitive, restricted, or unsafe material.\n\nPlease generate a NEW response that:\n1. Addresses the user's request safely.\n2. Avoids the sensitive topic or phrasing that triggered the block.\n3. Acknowledges the issue briefly if necessary.`
                     });
-                    this.notifyUpdate(session.id);
+                    this.notifyUpdate();
 
                     // Allow the loop to continue to the next iteration
                     continue;
@@ -550,13 +532,8 @@ ${skillInfo.instructions}
         }
     }
 
-    private notifyUpdate(sessionId: string) {
-        const session = this.getSession(sessionId);
-        this.broadcast('agent:update', {
-            sessionId,
-            history: session.history,
-            isProcessing: session.isProcessing
-        });
+    private notifyUpdate() {
+        this.broadcast('agent:history-update', this.history);
     }
 
     private async requestConfirmation(tool: string, description: string, args: Record<string, unknown>): Promise<boolean> {
@@ -589,11 +566,10 @@ ${skillInfo.instructions}
         }
     }
 
-    public abort(sessionId: string) {
-        const session = this.getSession(sessionId);
-        if (!session.isProcessing) return;
+    public abort() {
+        if (!this.isProcessing) return;
 
-        session.abortController?.abort();
+        this.abortController?.abort();
 
         // Clear any pending confirmations - respond with 'denied'
         for (const [, pending] of this.pendingConfirmations) {
@@ -603,19 +579,16 @@ ${skillInfo.instructions}
 
         // Broadcast abort event to all windows
         this.broadcast('agent:aborted', {
-            sessionId,
             aborted: true,
             timestamp: Date.now()
         });
 
         // Mark processing as complete
-        session.isProcessing = false;
-        session.abortController = null;
+        this.isProcessing = false;
+        this.abortController = null;
     }
     public dispose() {
-        for (const sessionId of this.sessions.keys()) {
-            this.abort(sessionId);
-        }
+        this.abort();
         this.mcpService.dispose();
     }
 }

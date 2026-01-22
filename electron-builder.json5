@@ -25,7 +25,13 @@
     },
     {
       "from": "resources/skills",
-      "to": "skills"
+      "to": "skills",
+      "filter": "**/*"
+    },
+    {
+      "from": "resources/mcp",
+      "to": "mcp",
+      "filter": "**/*"
     }
   ],
   "mac": {
@@ -36,7 +42,9 @@
     "hardenedRuntime": true,
     "gatekeeperAssess": false,
     "entitlements": "build/entitlements.mac.plist",
-    "entitlementsInherit": "build/entitlements.mac.plist"
+    "entitlementsInherit": "build/entitlements.mac.plist",
+    "icon": "build/icon.icns",
+    "category": "public.app-category.productivity"
   },
   "win": {
     "target": [
@@ -53,7 +61,7 @@
         ]
       }
     ],
-    "icon": "public/icon.png"
+    "icon": "build/icon.ico"
   },
   "nsis": {
     "oneClick": false,
@@ -72,6 +80,7 @@
     ],
     "maintainer": "Safphere <a976466014@gmail.com>",
     "category": "Utility",
+    "icon": "public/icon.png",
     "artifactName": "${productName}-Linux-${version}.${ext}"
   }
 }

@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
-import { ipcMain } from 'electron';
+import { ipcMain, app } from 'electron';
 
 // Polyfill EventSource for Node environment to support headers in SSE
 
@@ -130,7 +130,8 @@ const DEFAULT_MCP_CONFIGS: Record<string, MCPServerConfig> = {
             "MINIMAX_API_KEY": "{{MINIMAX_CN_API_KEY}}",
             "MINIMAX_API_HOST": "https://api.minimaxi.com"
         },
-        source: 'builtin'
+        source: 'builtin',
+        disabled: true
     },
     "minimax-intl": {
         name: "minimax-intl",
@@ -141,7 +142,8 @@ const DEFAULT_MCP_CONFIGS: Record<string, MCPServerConfig> = {
             "MINIMAX_API_KEY": "{{MINIMAX_INTL_API_KEY}}",
             "MINIMAX_API_HOST": "https://api.minimax.io"
         },
-        source: 'builtin'
+        source: 'builtin',
+        disabled: true
     }
 };
 
@@ -194,7 +196,57 @@ export class MCPClientService {
         this.clients.clear();
     }
 
-    async loadClients() {
+    private lastLoaded: number = 0;
+
+    /**
+     * Load built-in MCP configuration from resources/mcp/builtin-mcp.json
+     * This provides the default MCP servers that should always be available
+     */
+    private async loadBuiltinMCPConfig(): Promise<Record<string, MCPServerConfig>> {
+        console.log('[MCP] Loading built-in MCP configuration...');
+
+        const possiblePaths: string[] = [];
+
+        if (app.isPackaged) {
+            // In production, try multiple possible locations
+            possiblePaths.push(
+                path.join(process.resourcesPath, 'mcp', 'builtin-mcp.json'),  // Our electron-builder config
+                path.join(process.resourcesPath, 'resources', 'mcp', 'builtin-mcp.json'),  // Alternative layout
+                path.join(process.resourcesPath, 'app.asar.unpacked', 'mcp', 'builtin-mcp.json')  // Unpacked asar
+            );
+        } else {
+            // In development
+            possiblePaths.push(
+                path.join(process.cwd(), 'resources', 'mcp', 'builtin-mcp.json'),
+                path.join(process.cwd(), 'resources', 'mcp', 'builtin-mcp.json')
+            );
+        }
+
+        for (const testPath of possiblePaths) {
+            console.log(`[MCP] Checking built-in config path: ${testPath}`);
+            try {
+                await fs.access(testPath);
+                const content = await fs.readFile(testPath, 'utf-8');
+                const config = JSON.parse(content);
+                console.log(`[MCP] ✓ Found built-in MCP config at: ${testPath}`);
+                console.log(`[MCP] Built-in servers: ${Object.keys(config.mcpServers || {}).join(', ')}`);
+                return config.mcpServers || {};
+            } catch {
+                console.log(`[MCP] ✗ Built-in config not found at: ${testPath}`);
+            }
+        }
+
+        console.warn('[MCP] ⚠️  Could not find built-in MCP configuration, using hardcoded defaults');
+        return DEFAULT_MCP_CONFIGS;
+    }
+
+    async loadClients(force = false) {
+        if (!force && Date.now() - this.lastLoaded < 60000) {
+            // Cache hit
+            return;
+        }
+        this.lastLoaded = Date.now();
+
         // Strategy:
         // 1. Load Master Storage (mcp_storage.json).
         // 2. If missing, import from existing mcp.json (Migration).
@@ -222,24 +274,62 @@ export class MCPClientService {
             await this.writeStorageConfig({ mcpServers: masterConfig });
         }
 
-        // --- MERGE DEFAULTS (Green Version Logic) ---
+        // --- MERGE BUILT-IN CONFIGS ---
+        // Load built-in MCP servers from resources/mcp/builtin-mcp.json (or fallback to defaults)
+        const builtinConfigs = await this.loadBuiltinMCPConfig();
+
         // 1. Prune Obsolete Built-ins
-        // If a server is marked 'builtin' but is no longer in DEFAULT_MCP_CONFIGS, remove it.
+        // If a server is marked 'builtin' but is no longer in builtin configs, remove it.
         // This handles cases where we renamed or removed a built-in tool (e.g. 'git', 'time').
         for (const key of Object.keys(masterConfig)) {
             const config = masterConfig[key];
-            if (config.source === 'builtin' && !DEFAULT_MCP_CONFIGS[key]) {
+            if (config.source === 'builtin' && !builtinConfigs[key]) {
                 console.log(`[MCP] Pruning obsolete built-in server: ${key}`);
                 delete masterConfig[key];
             }
         }
 
-        // 2. Add Missing Defaults
-        for (const [key, defaultConfig] of Object.entries(DEFAULT_MCP_CONFIGS)) {
+        // 2. Add Missing Built-ins and Update Existing Built-ins
+        // This ensures that built-in servers are always updated with the latest config
+        // For built-in servers, we ALWAYS use the builtin config's disabled status
+        // This allows developers to disable problematic servers via builtin-mcp.json
+        let addedCount = 0;
+        let updatedCount = 0;
+        for (const [key, builtinConfig] of Object.entries(builtinConfigs)) {
             if (!masterConfig[key]) {
-                masterConfig[key] = { ...defaultConfig };
-                // Default enabled logic is implicit (no 'disabled' prop)
+                // New server, add it
+                masterConfig[key] = { ...builtinConfig };
+                console.log(`[MCP] ✓ Added built-in server: ${key}`);
+                addedCount++;
+            } else {
+                // Server exists, UPDATE it with builtin config
+                // CRITICAL: For builtin servers, ALWAYS use builtin config's disabled status
+                // This allows us to disable problematic servers centrally
+                const oldDisabled = masterConfig[key].disabled;
+                const newDisabled = builtinConfig.disabled;
+
+                masterConfig[key] = {
+                    ...builtinConfig,
+                    // Only preserve user-added data if it's not a builtin server
+                    ...(masterConfig[key].source === 'user' ? { name: masterConfig[key].name } : {})
+                };
+
+                if (oldDisabled !== newDisabled) {
+                    if (newDisabled) {
+                        console.log(`[MCP] ⚠️  Disabled built-in server: ${key}`);
+                    } else {
+                        console.log(`[MCP] ✓ Enabled built-in server: ${key}`);
+                    }
+                    updatedCount++;
+                }
             }
+        }
+
+        if (addedCount > 0) {
+            console.log(`[MCP] Added ${addedCount} built-in servers to configuration`);
+        }
+        if (updatedCount > 0) {
+            console.log(`[MCP] Updated ${updatedCount} built-in servers configuration`);
         }
 
         // Save initial storage with merged defaults
@@ -261,13 +351,20 @@ export class MCPClientService {
                 // Relaxed Timeout: Just log warning if slow, but don't fail.
                 // This allows background loading for slow servers without blocking.
                 const connectWithSafeTimeout = async () => {
-                    // No rigid timeout rejection. Just fire and forget (from the perspective of "blocking").
-                    // But we want to await it in Promise.all so we know when "init" is theoretically done.
-                    // User said "Some need to be slower".
-                    // So we simply await the connection.
+                    // Create a timeout promise (e.g., 15 seconds)
+                    const timeoutMs = 15000;
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error(`Connection timed out after ${timeoutMs}ms`)), timeoutMs)
+                    );
+
                     try {
                         console.log(`[MCP] Initiating connection to ${key}...`);
-                        await this.connectToServer(key, serverConfig);
+                        // Race connection against timeout
+                        await Promise.race([
+                            this.connectToServer(key, serverConfig),
+                            timeoutPromise
+                        ]);
+                        console.log(`[MCP] Connection to ${key} completed.`);
                     } catch (e: any) {
                         console.error(`[MCP] ${key} connection failed: ${e.message}`);
                         this.updateStatus(key, 'error', `Connection Failed: ${e.message}`);
@@ -466,9 +563,14 @@ export class MCPClientService {
 
             if (process.platform === 'win32' && workingConfig.type === 'stdio' && workingConfig.command) {
                 const cmd = workingConfig.command.toLowerCase();
-                if (['npx', 'npm'].includes(cmd) && !cmd.endsWith('.cmd')) {
-                    workingConfig.command = `${cmd}.cmd`;
-                    console.log(`[MCP] Windows fix: ${config.type === 'stdio' ? config.command : ''} -> ${workingConfig.command}`);
+                // Use cmd.exe /c for npx/npm to ensure proper pipe handling and avoid EPIPE
+                if (['npx', 'npm', 'npx.cmd', 'npm.cmd'].includes(cmd)) {
+                    const originalCommand = cmd.endsWith('.cmd') ? cmd.slice(0, -4) : cmd;
+                    // Construct new args: ['/c', originalCommand, ...originalArgs]
+                    // Note: We're changing the command to 'cmd.exe'
+                    workingConfig.args = ['/d', '/s', '/c', originalCommand, ...(workingConfig.args || [])];
+                    workingConfig.command = 'cmd.exe';
+                    console.log(`[MCP] Windows fix (cmd /c): ${(config as any).command} -> cmd.exe ${workingConfig.args.join(' ')}`);
                 }
             }
 
@@ -907,19 +1009,39 @@ export class MCPClientService {
 
     async getTools(): Promise<{ name: string; description?: string; input_schema: Record<string, unknown> }[]> {
         const allTools: { name: string; description?: string; input_schema: Record<string, unknown> }[] = [];
-        for (const [name, client] of this.clients) {
+
+        // Parallelize and timeout tool fetching
+        const toolPromises = Array.from(this.clients.entries()).map(async ([name, client]) => {
+            // Create a timeout promise
+            const timeoutMs = 10000;
+            const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Timeout processing listTools')), timeoutMs)
+            );
+
             try {
-                const toolsList = await client.listTools();
-                const tools = toolsList.tools.map(t => ({
+                const toolsList = await Promise.race([
+                    client.listTools(),
+                    timeoutPromise
+                ]);
+
+                return toolsList.tools.map(t => ({
                     name: `${name}__${t.name}`,
                     description: t.description || '',
                     input_schema: t.inputSchema as Record<string, unknown>
                 }));
-                allTools.push(...tools);
-            } catch (e) {
-                console.error(`Error listing tools for ${name}:`, e);
+            } catch (e: any) {
+                console.error(`Error listing tools for ${name}: ${e.message}`);
+                // Update status if it looks like a connection drop
+                if (e.message.includes('Timeout') || e.message.includes('closed')) {
+                    this.updateStatus(name, 'error', `Tool listing failed: ${e.message}`);
+                }
+                return [];
             }
-        }
+        });
+
+        const results = await Promise.all(toolPromises);
+        results.forEach(tools => allTools.push(...tools));
+
         return allTools;
     }
 

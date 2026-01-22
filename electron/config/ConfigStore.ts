@@ -172,15 +172,35 @@ class ConfigStore {
         const stored = this.store.get('providers') || defaultProviders;
         const merged: Record<string, ProviderConfig> = {};
 
+        // First, add all stored providers
         for (const key in stored) {
             const s = stored[key];
             const d = defaultProviders[key];
             if (s && d && !s.isCustom) {
-                merged[key] = { ...s, apiUrl: d.apiUrl, model: d.model, readonlyUrl: d.readonlyUrl };
+                // For built-in providers, merge stored user data (apiKey) with default configs
+                // Only preserve user-modifiable fields, keep defaults for others
+                merged[key] = {
+                    ...d,  // Start with defaults (url, model, readonlyUrl)
+                    ...s,  // Overlay user data (apiKey should be preserved)
+                    // Explicitly preserve these user-modifiable fields
+                    apiKey: s.apiKey || d.apiKey,
+                    // Keep default values for these fields
+                    apiUrl: d.apiUrl,
+                    model: d.model,
+                    readonlyUrl: d.readonlyUrl
+                };
             } else {
                 merged[key] = s;
             }
         }
+
+        // Then add any missing default providers
+        for (const key in defaultProviders) {
+            if (!merged[key]) {
+                merged[key] = { ...defaultProviders[key] };
+            }
+        }
+
         return merged;
     }
 
@@ -228,11 +248,53 @@ class ConfigStore {
 
     // === Helper for Main.ts set-all ===
     setAll(cfg: Partial<AppConfig>) {
-        if (cfg.authorizedFolders) this.store.set('authorizedFolders', cfg.authorizedFolders);
-        if (cfg.networkAccess !== undefined) this.store.set('networkAccess', cfg.networkAccess);
-        if (cfg.shortcut) this.store.set('shortcut', cfg.shortcut);
-        if (cfg.activeProviderId) this.store.set('activeProviderId', cfg.activeProviderId);
-        if (cfg.providers) this.store.set('providers', cfg.providers);
+        console.log('[ConfigStore] setAll called with:', Object.keys(cfg));
+
+        if (cfg.authorizedFolders !== undefined) {
+            this.store.set('authorizedFolders', cfg.authorizedFolders);
+            console.log('[ConfigStore] Updated authorizedFolders');
+        }
+        if (cfg.networkAccess !== undefined) {
+            this.store.set('networkAccess', cfg.networkAccess);
+            console.log('[ConfigStore] Updated networkAccess');
+        }
+        if (cfg.shortcut !== undefined) {
+            this.store.set('shortcut', cfg.shortcut);
+            console.log('[ConfigStore] Updated shortcut');
+        }
+        if (cfg.activeProviderId !== undefined) {
+            this.store.set('activeProviderId', cfg.activeProviderId);
+            console.log('[ConfigStore] Updated activeProviderId:', cfg.activeProviderId);
+        }
+        if (cfg.providers !== undefined) {
+            // Merge with existing providers to preserve user data
+            const currentProviders = this.store.get('providers') || {};
+            const mergedProviders = { ...currentProviders };
+
+            // Update each provider from the input
+            for (const [id, provider] of Object.entries(cfg.providers)) {
+                if (mergedProviders[id]) {
+                    // Merge with existing, preserving user data
+                    mergedProviders[id] = {
+                        ...mergedProviders[id],
+                        ...provider,
+                        // Ensure required fields exist
+                        id: provider.id || id,
+                        name: provider.name || mergedProviders[id].name
+                    };
+                } else {
+                    // New provider
+                    mergedProviders[id] = provider;
+                }
+            }
+
+            this.store.set('providers', mergedProviders);
+            console.log('[ConfigStore] Updated providers, keys:', Object.keys(mergedProviders));
+        }
+
+        // Verify the save
+        const saved = this.store.get('providers');
+        console.log('[ConfigStore] Verification - saved providers:', Object.keys(saved || {}).length);
     }
 
     // ... Keep Permissions methods

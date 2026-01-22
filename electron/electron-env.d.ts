@@ -27,6 +27,7 @@ interface IpcRendererApi {
   off(channel: string, listener: (event: import('electron').IpcRendererEvent, ...args: unknown[]) => void): void;
   send(channel: string, ...args: unknown[]): void;
   invoke(channel: string, ...args: unknown[]): Promise<unknown>;
+  platform: string;
 }
 
 // Used in Renderer process, expose in `preload.ts`

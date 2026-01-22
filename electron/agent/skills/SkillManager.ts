@@ -31,110 +31,198 @@ export class SkillManager {
     }
 
     async initializeDefaults() {
+        console.log('[SkillManager] Initializing default skills...');
+        console.log(`[SkillManager] App packaged: ${app.isPackaged}`);
+        console.log(`[SkillManager] Resources path: ${app.isPackaged ? process.resourcesPath : 'N/A (dev mode)'}`);
+        console.log(`[SkillManager] CWD: ${process.cwd()}`);
+
         try {
             // Determine source directory for default skills
-            let sourceDir = path.join(process.cwd(), 'resources', 'skills');
-            if (app.isPackaged) {
-                // In production, resources are typically in process.resourcesPath
-                // Checking 'resources/skills' inside resourcesPath (common mapping)
-                const possiblePath = path.join(process.resourcesPath, 'resources', 'skills');
-                // Fallback to just 'skills' if flattened
-                const fallbackPath = path.join(process.resourcesPath, 'skills');
+            let sourceDir = '';
+            const possiblePaths: string[] = [];
 
-                // Using async exists check helper or try/catch
+            if (app.isPackaged) {
+                // In production, try multiple possible locations
+                possiblePaths.push(
+                    path.join(process.resourcesPath, 'skills'),  // Our electron-builder config
+                    path.join(process.resourcesPath, 'resources', 'skills'),  // Alternative layout
+                    path.join(process.resourcesPath, 'app.asar.unpacked', 'skills')  // Unpacked asar
+                );
+            } else {
+                // In development
+                possiblePaths.push(
+                    path.join(process.cwd(), 'resources', 'skills'),
+                    path.join(process.cwd(), 'skills')  // Alternative dev layout
+                );
+            }
+
+            // Try each possible path
+            for (const testPath of possiblePaths) {
+                console.log(`[SkillManager] Checking path: ${testPath}`);
                 try {
-                    await fs.access(possiblePath);
-                    sourceDir = possiblePath;
+                    await fs.access(testPath);
+                    sourceDir = testPath;
+                    console.log(`[SkillManager] ✓ Found skills directory at: ${testPath}`);
+                    break;
                 } catch {
-                    sourceDir = fallbackPath;
+                    console.log(`[SkillManager] ✗ Path not found: ${testPath}`);
                 }
             }
 
-            // Check if source exists
-            try {
-                await fs.access(sourceDir);
-            } catch {
-                console.log('Default skills source not found at:', sourceDir);
+            if (!sourceDir) {
+                console.error('[SkillManager] ❌ Could not find default skills directory in any of these locations:', possiblePaths);
                 return;
             }
+
+            console.log(`[SkillManager] Using source directory: ${sourceDir}`);
 
             // Ensure target directory exists
             try {
                 await fs.access(this.skillsDir);
             } catch {
+                console.log(`[SkillManager] Creating target skills directory: ${this.skillsDir}`);
                 await fs.mkdir(this.skillsDir, { recursive: true });
             }
 
             // Copy files
+            console.log('[SkillManager] Reading source directory...');
             const files = await fs.readdir(sourceDir);
+            console.log(`[SkillManager] Found ${files.length} items in source directory`);
+
+            let installedCount = 0;
+            let skippedCount = 0;
+
             for (const file of files) {
                 // Must be a directory (skills are folders now)
                 try {
                     const stats = await fs.stat(path.join(sourceDir, file));
-                    if (!stats.isDirectory()) continue;
-                } catch { continue; }
+                    if (!stats.isDirectory()) {
+                        console.log(`[SkillManager] Skipping non-directory item: ${file}`);
+                        continue;
+                    }
+                } catch {
+                    console.log(`[SkillManager] Skipping inaccessible item: ${file}`);
+                    continue;
+                }
 
                 const targetPath = path.join(this.skillsDir, file);
+
+                // Check if skill already exists to avoid re-copying on every startup
                 try {
-                    // Always copy/overwrite to ensure latest version
-                    // force: true is default for cp, preventing error on exist unless errorOnExist is set
-                    await fs.cp(path.join(sourceDir, file), targetPath, { recursive: true, force: true });
-                    console.log(`Installed/Updated default skill: ${file}`);
-                } catch (e) {
-                    console.error(`Failed to install skill ${file}:`, e);
+                    await fs.access(targetPath);
+                    // Exists, skip
+                    console.log(`[SkillManager] ⊙ Skipped existing skill: ${file}`);
+                    skippedCount++;
+                } catch {
+                    // Doesn't exist, proceed to copy
+                    try {
+                        await fs.cp(path.join(sourceDir, file), targetPath, { recursive: true });
+                        console.log(`[SkillManager] ✓ Installed default skill: ${file}`);
+                        installedCount++;
+                    } catch (e) {
+                        console.error(`[SkillManager] ✗ Failed to install skill ${file}:`, e);
+                    }
                 }
             }
+
+            console.log(`[SkillManager] ✅ Default skills initialization complete: ${installedCount} installed, ${skippedCount} skipped.`);
         } catch (e) {
-            console.error('Failed to initialize default skills:', e);
+            console.error('[SkillManager] ❌ Failed to initialize default skills:', e);
         }
     }
 
-    async loadSkills() {
-        await this.initializeDefaults(); // Ensure defaults are installed before loading
+    private isLoading = false;
+    private lastLoaded = 0;
+    private readonly LOAD_COOLDOWN = 60000; // Increase cache to 60 seconds
+    private defaultsInitialized = false;
 
-        this.skills.clear();
+    async loadSkills(force = false) {
+        if (this.isLoading) {
+            console.log('[SkillManager] Already loading skills, skipping concurrent request.');
+            return;
+        }
+
+        // Skip if loaded recently (unless forced)
+        if (!force && Date.now() - this.lastLoaded < this.LOAD_COOLDOWN) {
+            console.log('[SkillManager] Skills loaded recently (cache hit), skipping reload.');
+            return;
+        }
+
+        this.isLoading = true;
+        console.log('[SkillManager] Starting loadSkills...');
+
         try {
-            await fs.access(this.skillsDir);
-        } catch {
-            return; // No skills directory
-        }
-
-        const files = await fs.readdir(this.skillsDir);
-        for (const file of files) {
-            const filePath = path.join(this.skillsDir, file);
-            let stats;
-            try {
-                stats = await fs.stat(filePath);
-            } catch { continue; }
-
-            if (stats.isDirectory()) {
-                // Look for SKILL.md inside directory
-                const skillMdPath = path.join(filePath, 'SKILL.md');
+            // Only initialize defaults ONCE per app session or if forced
+            if (!this.defaultsInitialized || force) {
+                // Wrap initializeDefaults in a timeout to prevent hanging
+                const defaultsTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Defaults init timeout')), 5000));
                 try {
-                    await fs.access(skillMdPath);
-                    await this.parseSkill(skillMdPath);
-                } catch {
-                    // console.log(`No SKILL.md found in ${file}`);
+                    await Promise.race([this.initializeDefaults(), defaultsTimeout]);
+                    this.defaultsInitialized = true;
+                } catch (e: any) {
+                    console.error(`[SkillManager] Defaults initialization warning: ${e.message}`);
                 }
-            } else if (file.endsWith('.md')) {
-                // Support legacy single-file skills
-                await this.parseSkill(filePath);
             }
+
+            console.log('[SkillManager] Clearing existing skills...');
+            this.skills.clear();
+            try {
+                await fs.access(this.skillsDir);
+            } catch {
+                console.log('[SkillManager] No skills directory found, skipping load.');
+                return; // No skills directory
+            }
+
+            console.log(`[SkillManager] Reading skills directory: ${this.skillsDir}`);
+            const files = await fs.readdir(this.skillsDir);
+            console.log(`[SkillManager] Found ${files.length} files/folders.`);
+
+            for (const file of files) {
+                // console.log(`[SkillManager] Checking file: ${file}`); // Reduced verbosity
+                const filePath = path.join(this.skillsDir, file);
+                let stats;
+                try {
+                    stats = await fs.stat(filePath);
+                } catch { continue; }
+
+                if (stats.isDirectory()) {
+                    // Look for SKILL.md inside directory
+                    const skillMdPath = path.join(filePath, 'SKILL.md');
+                    try {
+                        await fs.access(skillMdPath);
+                        console.log(`[SkillManager] Parsing skill (directory): ${file}`);
+                        await this.parseSkill(skillMdPath);
+                    } catch {
+                        // console.log(`[SkillManager] No SKILL.md found in ${file}`);
+                    }
+                } else if (file.endsWith('.md')) {
+                    // Support legacy single-file skills
+                    console.log(`[SkillManager] Parsing skill (file): ${file}`);
+                    await this.parseSkill(filePath);
+                }
+            }
+            this.lastLoaded = Date.now();
+            console.log(`[SkillManager] Loaded ${this.skills.size} skills total.`);
+        } finally {
+            this.isLoading = false;
         }
-        console.log(`Loaded ${this.skills.size} skills`);
     }
 
     private async parseSkill(filePath: string) {
         try {
+            console.log(`[SkillManager] Reading content of ${filePath}`);
             const content = await fs.readFile(filePath, 'utf-8');
             const parts = content.split('---');
-            if (parts.length < 3) return; // Invalid frontmatter structure
+            if (parts.length < 3) {
+                console.warn(`[SkillManager] Invalid frontmatter structure in ${filePath}`);
+                return;
+            }
 
             const frontmatter = yaml.load(parts[1]) as { name?: string; description?: string; input_schema?: Record<string, unknown> } | undefined;
             const instructions = parts.slice(2).join('---').trim();
 
             if (frontmatter && frontmatter.name && frontmatter.description) {
-                console.log(`[SkillManager] Loaded ${frontmatter.name} (desc: ${frontmatter.description}, inst len: ${instructions.length})`);
+                console.log(`[SkillManager] Successfully loaded ${frontmatter.name}`);
                 this.skills.set(frontmatter.name, {
                     name: frontmatter.name,
                     description: frontmatter.description,
@@ -142,10 +230,10 @@ export class SkillManager {
                     instructions: instructions
                 });
             } else {
-                console.warn(`[SkillManager] Invalid frontmatter in ${filePath}`);
+                console.warn(`[SkillManager] Missing name/description in frontmatter of ${filePath}`);
             }
         } catch (e) {
-            console.error(`Failed to load skill from ${filePath}`, e);
+            console.error(`[SkillManager] Failed to load skill from ${filePath}`, e);
         }
     }
 

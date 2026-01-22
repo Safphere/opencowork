@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
-import { Square, ArrowUp, ChevronDown, ChevronUp, Download, FolderOpen, MessageCircle, Zap, AlertTriangle, Check, X, Settings, History, Plus, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef, memo, useCallback } from 'react';
+import { Zap, AlertTriangle, Check, X, Settings, History, Plus, Trash2, ChevronDown, ChevronUp, MessageCircle, Download } from 'lucide-react';
+import { ChatInput } from './ChatInput';
 import { useI18n } from '../i18n/I18nContext';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import Anthropic from '@anthropic-ai/sdk';
@@ -21,19 +22,16 @@ interface SessionSummary {
 }
 
 interface CoworkViewProps {
-    sessionId: string | null;
     history: Anthropic.MessageParam[];
     onSendMessage: (message: string | { content: string, images: string[] }) => void;
     onAbort: () => void;
     isProcessing: boolean;
     onOpenSettings: () => void;
-    onSessionChange: (sessionId: string) => void;
 }
 
-export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProcessing, onOpenSettings, onSessionChange }: CoworkViewProps) {
+// Memoize the entire view to prevent re-renders when parent state (like settings) changes
+export const CoworkView = memo(function CoworkView({ history, onSendMessage, onAbort, isProcessing, onOpenSettings }: CoworkViewProps) {
     const { t } = useI18n();
-    const [input, setInput] = useState('');
-    const [images, setImages] = useState<string[]>([]); // Base64 strings
     const [mode, setMode] = useState<Mode>('work');
     const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(new Set());
     const [streamingText, setStreamingText] = useState('');
@@ -41,23 +39,10 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
     const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
     const [showHistory, setShowHistory] = useState(false);
     const [sessions, setSessions] = useState<SessionSummary[]>([]);
-    const [config, setConfig] = useState<any>(null); // Store full config
-    // Removed standalone modelName state, derive from config
-    const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
+    const [config, setConfig] = useState<any>(null);
 
-    // Change ref to textarea
-    const inputRef = useRef<HTMLTextAreaElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
-
-    // Auto-resize textarea
-    useEffect(() => {
-        if (inputRef.current) {
-            inputRef.current.style.height = 'auto'; // Reset to auto to get correct scrollHeight
-            inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 72)}px`; // Max height ~3 lines
-        }
-    }, [input]);
 
     const scrollToBottom = () => {
         if (scrollRef.current) {
@@ -67,27 +52,7 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
 
     // Load config including model name
     // Provider Constants
-    const PROVIDER_MODELS: Record<string, string[]> = {
-        'glm': ['glm-4.7', 'glm-4.6'],
-        'zai': ['glm-4.7', 'glm-4.6'],
-        'minimax_cn': ['MiniMax-M2.1'],
-        'minimax_intl': ['MiniMax-M2.1'],
-        'custom': []
-    };
-    const PROVIDER_NAMES: Record<string, string> = {
-        'glm': '智谱 GLM',
-        'zai': 'ZAI',
-        'minimax_cn': 'MiniMax (国内)',
-        'minimax_intl': 'MiniMax (海外)',
-        'custom': '自定义'
-    };
 
-    // Helper method to get display name
-    const getModelDisplayName = (cfg: any) => {
-        if (!cfg || !cfg.activeProviderId || !cfg.providers) return 'Loading...';
-        const p = cfg.providers[cfg.activeProviderId];
-        return p ? `${p.model}` : 'Unknown';
-    };
 
     useEffect(() => {
         window.ipcRenderer.invoke('config:get-all').then((cfg) => {
@@ -95,24 +60,40 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
         });
         // ... existing listeners
         const removeStreamListener = window.ipcRenderer.on('agent:stream-token', (_event, ...args) => {
-            const data = args[0] as { sessionId: string, token: string };
-            // Filter by session ID
-            if (data.sessionId === sessionId) {
-                setStreamingText(prev => prev + data.token);
-            }
+            const token = args[0] as string;
+            setStreamingText(prev => prev + token);
         });
 
-        const removeThinkingListener = window.ipcRenderer.on('agent:stream-thinking', (_event, ...args) => {
-            const data = args[0] as { sessionId: string, text: string };
-            if (data.sessionId === sessionId) {
-                // For now, just append to streaming text or handle differently if UI supports it
-                setStreamingText(prev => prev + data.text);
+        // Clear streaming when history updates and save session
+        const removeHistoryListener = window.ipcRenderer.on('agent:history-update', async (_event, ...args) => {
+            const newHistory = args[0] as Anthropic.MessageParam[];
+            setStreamingText('');
+            // Auto-save session only if there's meaningful content
+            if (newHistory && newHistory.length > 0) {
+                const hasRealContent = newHistory.some(msg => {
+                    const content = msg.content;
+                    if (typeof content === 'string') {
+                        return content.trim().length > 0;
+                    } else if (Array.isArray(content)) {
+                        return content.some(block =>
+                            block.type === 'text' ? (block.text || '').trim().length > 0 : true
+                        );
+                    }
+                    return false;
+                });
+
+                if (hasRealContent) {
+                    try {
+                        const result = await window.ipcRenderer.invoke('session:save', newHistory) as { success: boolean; sessionId?: string; error?: string };
+                        if (!result.success) {
+                            console.error('[CoworkView] Failed to save session:', result.error);
+                        }
+                    } catch (error) {
+                        console.error('[CoworkView] Error saving session:', error);
+                    }
+                }
             }
         });
-
-        // Clear streaming when history updates is handled in parent via props update
-        // But we still need to clear it locally if we detect a change?
-        // Actually App handles history update.
 
         // Listen for permission requests
         const removeConfirmListener = window.ipcRenderer.on('agent:confirm-request', (_event, ...args) => {
@@ -121,26 +102,39 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
         });
 
         // Listen for abort events
-        const removeAbortListener = window.ipcRenderer.on('agent:aborted', (_event, ...args) => {
-            const data = args[0] as { sessionId: string };
-            if (data.sessionId === sessionId) {
-                setStreamingText('');
-                setPermissionRequest(null);
-            }
+        const removeAbortListener = window.ipcRenderer.on('agent:aborted', () => {
+            setStreamingText('');
+            setPermissionRequest(null);
         });
 
         return () => {
+            // Save session on unmount to prevent data loss
+            if (history && history.length > 0) {
+                const hasRealContent = history.some(msg => {
+                    const content = msg.content;
+                    if (typeof content === 'string') {
+                        return content.trim().length > 0;
+                    } else if (Array.isArray(content)) {
+                        return content.some(block =>
+                            block.type === 'text' ? (block.text || '').trim().length > 0 : true
+                        );
+                    }
+                    return false;
+                });
+
+                if (hasRealContent) {
+                    window.ipcRenderer.invoke('session:save', history).catch(err => {
+                        console.error('[CoworkView] Error saving session on unmount:', err);
+                    });
+                }
+            }
+
             removeStreamListener?.();
-            removeThinkingListener?.();
+            removeHistoryListener?.();
             removeConfirmListener?.();
             removeAbortListener?.();
         };
-    }, [sessionId]);
-
-    // Reset streaming text when history length changes (message completed)
-    useEffect(() => {
-        setStreamingText('');
-    }, [history.length]);
+    }, []);
 
     // Fetch session list when history panel is opened
     useEffect(() => {
@@ -153,24 +147,9 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
 
     useEffect(() => {
         scrollToBottom();
-    }, [history, streamingText, images]); // Scroll when images change too
+    }, [history, streamingText]);
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if ((!input.trim() && images.length === 0) || isProcessing) return;
 
-        setStreamingText('');
-
-        // Send as object if images exist, otherwise string for backward compat
-        if (images.length > 0) {
-            onSendMessage({ content: input, images });
-        } else {
-            onSendMessage(input);
-        }
-
-        setInput('');
-        setImages([]);
-    };
 
     const handleSelectFolder = async () => {
         const folder = await window.ipcRenderer.invoke('dialog:select-folder') as string | null;
@@ -191,47 +170,7 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
         }
     };
 
-    // Image Input Handlers
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (files) {
-            Array.from(files).forEach(file => {
-                if (file.type.startsWith('image/')) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        const result = e.target?.result as string;
-                        if (result) {
-                            setImages(prev => [...prev, result]);
-                        }
-                    };
-                    reader.readAsDataURL(file);
-                }
-            });
-        }
-        // Reset input
-        if (fileInputRef.current) fileInputRef.current.value = '';
-    };
 
-    const handlePaste = (e: React.ClipboardEvent) => {
-        const items = e.clipboardData.items;
-        for (const item of items) {
-            if (item.type.indexOf('image') !== -1) {
-                e.preventDefault();
-                const blob = item.getAsFile();
-                if (blob) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        setImages(prev => [...prev, e.target?.result as string]);
-                    };
-                    reader.readAsDataURL(blob);
-                }
-            }
-        }
-    };
-
-    const removeImage = (index: number) => {
-        setImages(prev => prev.filter((_, i) => i !== index));
-    };
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -239,28 +178,23 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
             // Focus input on Ctrl/Cmd+L
             if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
                 e.preventDefault();
-                inputRef.current?.focus();
+                // inputRef.current?.focus(); // Logic moved to ChatInput
             }
         };
         window.addEventListener('keydown', handleGlobalKeyDown);
         return () => window.removeEventListener('keydown', handleGlobalKeyDown);
     }, []);
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmit(e as any);
-        }
-    };
 
-    const toggleBlock = (id: string) => {
+
+    const toggleBlock = useCallback((id: string) => {
         setExpandedBlocks(prev => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
             return next;
         });
-    };
+    }, []);
 
     const relevantHistory = history.filter(m => (m.role as string) !== 'system');
 
@@ -363,12 +297,7 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
                     )}
                     <div className="flex items-center gap-1">
                         <button
-                            onClick={async () => {
-                                const res = await window.ipcRenderer.invoke('agent:new-session') as { sessionId?: string };
-                                if (res && res.sessionId) {
-                                    onSessionChange(res.sessionId);
-                                }
-                            }}
+                            onClick={() => window.ipcRenderer.invoke('agent:new-session')}
                             className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-800 rounded-lg transition-colors"
                             title={t('newSession')}
                         >
@@ -434,8 +363,7 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
                                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                             <button
                                                 onClick={() => {
-                                                    // Load session and notify parent
-                                                    onSessionChange(session.id);
+                                                    window.ipcRenderer.invoke('session:load', session.id);
                                                     setShowHistory(false);
                                                 }}
                                                 className="text-[10px] flex items-center gap-1 text-orange-500 hover:text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full"
@@ -499,205 +427,32 @@ export function CoworkView({ sessionId, history, onSendMessage, onAbort, isProce
                 </div>
             </div>
 
+
             {/* Bottom Input */}
-            <div className="border-t border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 pt-3 pb-1 shadow-lg shadow-stone-200/50 dark:shadow-black/20">
-                <div className="max-w-xl mx-auto">
-                    {/* Image Preview Area */}
-                    {images.length > 0 && (
-                        <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
-                            {images.map((img, idx) => (
-                                <div key={idx} className="relative w-16 h-16 rounded-lg border border-stone-200 overflow-hidden shrink-0 group">
-                                    <img src={img} alt="Preview" className="w-full h-full object-cover" />
-                                    <button
-                                        onClick={() => removeImage(idx)}
-                                        className="absolute top-0.5 right-0.5 bg-black/50 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    >
-                                        <X size={10} />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    <form onSubmit={handleSubmit}>
-                        <div className="flex flex-col bg-[#FAF9F7] dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-700 rounded-[20px] px-3 pt-2 pb-1 shadow-sm transition-all hover:shadow-md focus-within:ring-4 focus-within:ring-orange-50/50 focus-within:border-orange-200 dark:focus-within:border-orange-500/30">
-
-                            <textarea
-                                ref={inputRef}
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                onPaste={handlePaste}
-                                placeholder={mode === 'chat' ? t('inputMessage') : workingDir ? t('describeTaskPlaceholder') : t('selectWorkingDirFirst')}
-                                rows={1}
-                                className="w-full bg-transparent text-stone-800 dark:text-zinc-100 placeholder:text-stone-400 dark:placeholder:text-zinc-500 text-sm focus:outline-none resize-none overflow-y-auto min-h-[24px] max-h-[120px] leading-6 pt-0.5 pb-0 transition-[height] duration-200 ease-out mb-0"
-                                style={{
-                                    scrollbarWidth: 'none',
-                                    msOverflowStyle: 'none',
-                                    height: 'auto'
-                                }}
-                            />
-                            {/* Hide scrollbar */}
-                            <style>{`
-                                textarea::-webkit-scrollbar {
-                                    display: none;
-                                }
-                            `}</style>
-
-                            {/* Toolbar Row - Divider removed */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-0.5">
-                                    <button
-                                        type="button"
-                                        onClick={handleSelectFolder}
-                                        className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg transition-colors"
-                                        title={t('selectWorkingDir')}
-                                    >
-                                        <FolderOpen size={16} />
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-700 rounded-lg transition-colors"
-                                        title={t('uploadImage')}
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 0 0 0-2.828 0L6 21" /></svg>
-                                    </button>
-                                    <input
-                                        type="file"
-                                        ref={fileInputRef}
-                                        className="hidden"
-                                        accept="image/*"
-                                        multiple
-                                        onChange={handleFileSelect}
-                                    />
-
-                                    <div className="w-px h-3 bg-stone-200 dark:bg-zinc-700 mx-1" />
-
-                                    {/* Model Selector */}
-                                    <div className="relative">
-                                        <div
-                                            onClick={() => setIsModelSelectorOpen(!isModelSelectorOpen)}
-                                            className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-stone-500 bg-stone-100/50 hover:bg-stone-100 dark:text-zinc-400 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-md cursor-pointer transition-colors max-w-[120px]"
-                                            title={t('switchModel')}
-                                        >
-                                            <span className="truncate scale-90 origin-left">
-                                                {config ? getModelDisplayName(config) : 'Loading...'}
-                                            </span>
-                                            <ChevronDown size={12} className="text-stone-400 dark:text-zinc-500 shrink-0" />
-                                        </div>
-
-                                        {/* Model Selector Popover */}
-                                        {isModelSelectorOpen && config && (
-                                            <>
-                                                <div className="fixed inset-0 z-10" onClick={() => setIsModelSelectorOpen(false)} />
-                                                <div className="absolute bottom-full left-0 mb-2 w-48 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-xl shadow-xl z-20 max-h-64 overflow-y-auto py-1 animate-in slide-in-from-bottom-2 fade-in duration-200">
-                                                    {Object.keys(PROVIDER_MODELS).map(providerId => {
-                                                        const models = PROVIDER_MODELS[providerId];
-                                                        const providerName = config.providers[providerId]?.name || PROVIDER_NAMES[providerId] || providerId;
-
-                                                        if (providerId === 'custom') {
-                                                            return (
-                                                                <div key={providerId}>
-                                                                    <div className="px-3 py-1.5 text-[10px] font-bold text-stone-400 dark:text-zinc-500 bg-stone-50/50 dark:bg-zinc-800/50 uppercase tracking-wider">
-                                                                        {providerName}
-                                                                    </div>
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            const newConfig = { ...config, activeProviderId: providerId };
-                                                                            setConfig(newConfig);
-                                                                            window.ipcRenderer.invoke('config:set-all', newConfig);
-                                                                            setIsModelSelectorOpen(false);
-                                                                        }}
-                                                                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-orange-50 dark:hover:bg-orange-500/10 transition-colors truncate flex items-center justify-between group ${config.activeProviderId === providerId ? 'text-orange-600 dark:text-orange-400 bg-orange-50/50 dark:bg-orange-500/10' : 'text-stone-600 dark:text-zinc-300'}`}
-                                                                    >
-                                                                        <span>{config.providers[providerId]?.model || 'Custom Model'}</span>
-                                                                        {config.activeProviderId === providerId && <Check size={12} />}
-                                                                    </button>
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        // Skip if no models defined
-                                                        if (models.length === 0) return null;
-
-                                                        return (
-                                                            <div key={providerId}>
-                                                                <div className="px-3 py-1.5 text-[10px] font-bold text-stone-400 dark:text-zinc-500 bg-stone-50/50 dark:bg-zinc-800/50 uppercase tracking-wider sticky top-0">
-                                                                    {providerName}
-                                                                </div>
-                                                                {models.map(model => (
-                                                                    <button
-                                                                        key={model}
-                                                                        onClick={() => {
-                                                                            const newConfig = { ...config };
-                                                                            newConfig.activeProviderId = providerId;
-                                                                            if (!newConfig.providers[providerId]) {
-                                                                                // Should exist, but safety check
-                                                                                newConfig.providers[providerId] = { id: providerId, model: model, apiKey: '', apiUrl: '' };
-                                                                            }
-                                                                            newConfig.providers[providerId].model = model;
-
-                                                                            setConfig(newConfig);
-                                                                            window.ipcRenderer.invoke('config:set-all', newConfig);
-                                                                            setIsModelSelectorOpen(false);
-                                                                        }}
-                                                                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-orange-50 dark:hover:bg-orange-500/10 transition-colors truncate flex items-center justify-between group ${config.activeProviderId === providerId && config.providers[providerId].model === model ? 'text-orange-600 dark:text-orange-400 bg-orange-50/50 dark:bg-orange-500/10' : 'text-stone-600 dark:text-zinc-300'}`}
-                                                                    >
-                                                                        <span>{model}</span>
-                                                                        {config.activeProviderId === providerId && config.providers[providerId].model === model && <Check size={12} />}
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Send/Stop Button */}
-                                <div>
-                                    {isProcessing ? (
-                                        <button
-                                            type="button"
-                                            onClick={onAbort}
-                                            className="p-1 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-all flex items-center gap-1 px-2 shadow-sm"
-                                            title={t('stop')}
-                                        >
-                                            <Square size={12} fill="currentColor" />
-                                            <span className="text-[10px] font-semibold">{t('stop')}</span>
-                                        </button>
-                                    ) : (
-                                        <button
-                                            type="submit"
-                                            disabled={!input.trim() && images.length === 0}
-                                            className={`p-1 rounded-lg transition-all shadow-sm flex items-center justify-center ${input.trim() || images.length > 0
-                                                ? 'bg-orange-500 text-white hover:bg-orange-600 hover:shadow-orange-200 hover:shadow-md'
-                                                : 'bg-stone-100 dark:bg-zinc-800 text-stone-300 dark:text-zinc-600 cursor-not-allowed'
-                                                }`}
-                                            style={{ width: '26px', height: '26px' }}
-                                        >
-                                            <ArrowUp size={16} />
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </form>
-
-                    <p className="text-[11px] text-stone-400 dark:text-zinc-600 text-center mt-1.5">
-                        {t('aiDisclaimer')}
-                    </p>
-                </div>
-            </div>
+            <ChatInput
+                onSendMessage={(msg) => {
+                    setStreamingText('');
+                    onSendMessage(msg);
+                }}
+                onAbort={onAbort}
+                isProcessing={isProcessing}
+                workingDir={workingDir}
+                onSelectFolder={handleSelectFolder}
+                mode={mode}
+                config={config}
+                setConfig={(newConfig) => {
+                    setConfig(newConfig);
+                    // Also update in main process if ChatInput doesn't do it directly?
+                    // ChatInput logic calls invoke, so we just update local state.
+                }}
+            />
         </div>
     );
-}
+});
 
-function MessageItem({ message, expandedBlocks, toggleBlock, showTools, onImageClick }: {
+
+
+const MessageItem = memo(function MessageItem({ message, expandedBlocks, toggleBlock, showTools, onImageClick }: {
     message: Anthropic.MessageParam,
     expandedBlocks: Set<string>,
     toggleBlock: (id: string) => void,
@@ -841,7 +596,7 @@ function MessageItem({ message, expandedBlocks, toggleBlock, showTools, onImageC
             })}
         </div>
     );
-}
+});
 
 function EmptyState({ mode, workingDir }: { mode: Mode, workingDir: string | null }) {
     const { t } = useI18n();

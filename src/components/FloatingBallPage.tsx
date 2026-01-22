@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowUp, Home, History, X, Plus, Square, Check } from 'lucide-react';
+import { Home, History, X, Plus, Check } from 'lucide-react';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { FloatingInput } from './FloatingInput';
 
 type BallState = 'collapsed' | 'input' | 'expanded';
 
@@ -28,8 +29,8 @@ import { useI18n } from '../i18n/I18nContext';
 export function FloatingBallPage() {
     const { t } = useI18n();
     const [ballState, setBallState] = useState<BallState>('collapsed');
-    const [input, setInput] = useState('');
-    const [images, setImages] = useState<string[]>([]); // Base64 strings
+    // input/images moved to FloatingInput, but we track presence for auto logic
+    const [hasContent, setHasContent] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
     const [streamingText, setStreamingText] = useState('');
@@ -39,6 +40,8 @@ export function FloatingBallPage() {
     const [isSuccess, setIsSuccess] = useState(false);
 
     const [sessionId, setSessionId] = useState<string | null>(null);
+    const [isNewSession, setIsNewSession] = useState(true); // Track if this is a new session
+    const hasInitialized = useRef(false); // Track if we've initialized the first session
 
     // Fetch session list when history is opened
     useEffect(() => {
@@ -49,85 +52,118 @@ export function FloatingBallPage() {
         }
     }, [showHistory]);
 
-    // Initialize session on mount
+    // Initialize as new session when floating ball first expands (only once)
     useEffect(() => {
-        if (!sessionId) {
-            window.ipcRenderer.invoke('agent:new-session').then((res: any) => {
-                if (res.sessionId) setSessionId(res.sessionId);
-            });
-        }
-    }, []); // Run once on mount
-
-    // Listen for state changes and messages - depends on sessionId
-    useEffect(() => {
-        const removeUpdateListener = window.ipcRenderer.on('agent:update', (_event, ...args) => {
-            const data = args[0] as { sessionId: string, history: Message[], isProcessing: boolean };
-            if (sessionId && data.sessionId !== sessionId) return;
-            setMessages(data.history.filter(m => m.role !== 'system') || []);
+        if (ballState !== 'collapsed' && isNewSession && !hasInitialized.current) {
+            // Clear any previous history to start fresh
+            window.ipcRenderer.invoke('agent:new-session');
+            setMessages([]);
             setStreamingText('');
-            // setIsProcessing(data.isProcessing); // Optional: sync processing state
+            hasInitialized.current = true; // Mark as initialized
+        }
+    }, [ballState, isNewSession]);
+
+    // Listen for state changes and messages
+    useEffect(() => {
+        const removeUpdateListener = window.ipcRenderer.on('agent:history-update', async (_event, ...args) => {
+            const history = args[0] as Message[];
+            setMessages(history.filter(m => m.role !== 'system') || []);
+            setStreamingText('');
+
+            // Auto-save session when history updates
+            if (history && history.length > 0) {
+                const hasRealContent = history.some(msg => {
+                    const content = msg.content;
+                    if (typeof content === 'string') {
+                        return content.trim().length > 0;
+                    } else if (Array.isArray(content)) {
+                        return content.some(block =>
+                            block.type === 'text' ? (block.text || '').trim().length > 0 : true
+                        );
+                    }
+                    return false;
+                });
+
+                if (hasRealContent) {
+                    try {
+                        // Save with current sessionId (null for new sessions, which creates a new session)
+                        const result = await window.ipcRenderer.invoke('session:save', history) as { success: boolean; sessionId?: string; error?: string };
+
+                        if (result.success) {
+                            // Update sessionId if this was a new session that got created
+                            if (result.sessionId && !sessionId) {
+                                setSessionId(result.sessionId);
+                            }
+                        } else {
+                            console.error('[FloatingBall] Failed to save session:', result.error);
+                        }
+                    } catch (error) {
+                        console.error('[FloatingBall] Error saving session:', error);
+                    }
+                }
+            }
         });
 
         const removeStreamListener = window.ipcRenderer.on('agent:stream-token', (_event, ...args) => {
-            const data = args[0] as { sessionId: string, token: string };
-            if (sessionId && data.sessionId !== sessionId) return;
-            setStreamingText(prev => prev + data.token);
+            const token = args[0] as string;
+            setStreamingText(prev => prev + token);
         });
 
         const removeErrorListener = window.ipcRenderer.on('agent:error', (_event, ...args) => {
-            const data = args[0] as { sessionId: string, error: string } | string;
-            const errSessionId = typeof data === 'string' ? null : data.sessionId;
-            if (errSessionId && sessionId && errSessionId !== sessionId) return;
-
+            const error = args[0] as string;
+            console.error('Agent Error:', error);
             setIsProcessing(false);
             setStreamingText('');
         });
 
-        // Listen for abort event
-        const removeAbortListener = window.ipcRenderer.on('agent:aborted', (_event, ...args) => {
-            const data = args[0] as { sessionId: string };
-            if (sessionId && data.sessionId !== sessionId) return;
+        const removeAbortListener = window.ipcRenderer.on('agent:aborted', () => {
             setIsProcessing(false);
             setStreamingText('');
         });
 
-        // Only reset isProcessing when processing is truly done
-        const removeDoneListener = window.ipcRenderer.on('agent:done', (_event, ...args) => {
-            const data = args[0] as { sessionId: string };
-            if (sessionId && data.sessionId !== sessionId) return;
+        const removeDoneListener = window.ipcRenderer.on('agent:done', () => {
             setIsProcessing(false);
             setIsSuccess(true);
-            setTimeout(() => setIsSuccess(false), 3000); // Reset success state after 3s
+            setTimeout(() => setIsSuccess(false), 3000);
         });
 
         return () => {
+            // Save session on unmount to prevent data loss
+            if (messages.length > 0) {
+                const hasRealContent = messages.some(msg => {
+                    const content = msg.content;
+                    if (typeof content === 'string') {
+                        return content.trim().length > 0;
+                    } else if (Array.isArray(content)) {
+                        return content.some(block =>
+                            block.type === 'text' ? (block.text || '').trim().length > 0 : true
+                        );
+                    }
+                    return false;
+                });
+
+                if (hasRealContent) {
+                    window.ipcRenderer.invoke('session:save', messages).catch(err => {
+                        console.error('[FloatingBall] Error saving session on unmount:', err);
+                    });
+                }
+            }
+
             removeUpdateListener?.();
             removeStreamListener?.();
             removeErrorListener?.();
             removeAbortListener?.();
             removeDoneListener?.();
         };
-    }, [sessionId]);
+    }, []);
 
     // ... (refs and resizing logic same as before) ...
     // Change ref to textarea
-    const inputRef = useRef<HTMLTextAreaElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const collapseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-    // Auto-resize textarea
-    useEffect(() => {
-        if (inputRef.current) {
-            inputRef.current.style.height = 'auto'; // Reset to auto
-            // Only set specific height if there is content, otherwise let rows=1 handle it
-            // This prevents placeholder from causing expansion when the window is still resizing (small width)
-            if (input) {
-                inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 72)}px`;
-            }
-        }
-    }, [input]);
+    // Auto-resize logic moved to FloatingInput
 
     // Add transparent class to html element
     useEffect(() => {
@@ -139,7 +175,7 @@ export function FloatingBallPage() {
 
     // Auto-collapse logic (only if not hovering and no input)
     useEffect(() => {
-        if (ballState === 'input' && !input.trim() && images.length === 0 && !isProcessing && !isHovering) {
+        if (ballState === 'input' && !hasContent && !isProcessing && !isHovering) {
             collapseTimeoutRef.current = setTimeout(() => {
                 setBallState('collapsed');
                 window.ipcRenderer.invoke('floating-ball:toggle');
@@ -151,17 +187,17 @@ export function FloatingBallPage() {
                 clearTimeout(collapseTimeoutRef.current);
             }
         };
-    }, [ballState, input, images, isProcessing, isHovering]);
+    }, [ballState, hasContent, isProcessing, isHovering]);
 
     // Clear timeout when user types
     useEffect(() => {
-        if (input.trim() || images.length > 0) {
+        if (hasContent) {
             if (collapseTimeoutRef.current) {
                 clearTimeout(collapseTimeoutRef.current);
                 collapseTimeoutRef.current = null;
             }
         }
-    }, [input, images]);
+    }, [hasContent]);
 
     // Click outside to collapse
     useEffect(() => {
@@ -183,12 +219,7 @@ export function FloatingBallPage() {
         };
     }, [ballState, isProcessing]);
 
-    // Focus input when expanding to input state
-    useEffect(() => {
-        if (ballState === 'input') {
-            setTimeout(() => inputRef.current?.focus(), 100);
-        }
-    }, [ballState]);
+    // Focus logic now handled in FloatingInput via autoFocus prop
 
     // Sync window height with state
     // Track previous state for resize direction logic
@@ -247,7 +278,7 @@ export function FloatingBallPage() {
 
         observer.observe(container);
         return () => observer.disconnect();
-    }, [ballState, showHistory, input, images.length]); // Re-bind if dependencies change layout relevantly
+    }, [ballState, showHistory, hasContent]); // Re-bind if dependencies change layout relevantly
 
     // Handle ball click - expand slowly
     const handleBallClick = () => {
@@ -256,10 +287,9 @@ export function FloatingBallPage() {
     };
 
     // Handle submit - send message and expand to full view
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if ((!input.trim() && images.length === 0) || isProcessing) return;
-        if (!sessionId) return; // Should allow processing?
+    const handleSubmit = async (content: string, images: string[]) => {
+        if ((!content.trim() && images.length === 0) || isProcessing) return;
+        // Removed sessionId check for single-session mode
 
         setIsProcessing(true);
         setStreamingText('');
@@ -268,31 +298,23 @@ export function FloatingBallPage() {
         try {
             // Send as object if images exist, otherwise string for backward compat
             if (images.length > 0) {
-                await window.ipcRenderer.invoke('agent:send-message', { sessionId, input: { content: input, images } });
+                await window.ipcRenderer.invoke('agent:send-message', { content, images });
             } else {
-                await window.ipcRenderer.invoke('agent:send-message', { sessionId, input: input.trim() });
+                await window.ipcRenderer.invoke('agent:send-message', content.trim());
             }
         } catch (err) {
             console.error(err);
             setIsProcessing(false);
         }
-        setInput('');
-        setImages([]);
     };
 
     // Handle abort - stop the current task
     const handleAbort = () => {
-        if (!sessionId) return;
-        window.ipcRenderer.invoke('agent:abort', sessionId);
+        window.ipcRenderer.invoke('agent:abort');
         setIsProcessing(false);
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSubmit(e as any);
-        }
-    };
+
 
     // Handle collapse
     const handleCollapse = () => {
@@ -300,49 +322,7 @@ export function FloatingBallPage() {
         window.ipcRenderer.invoke('floating-ball:toggle');
     };
 
-    // Image Input Handlers
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (files) {
-            Array.from(files).forEach(file => {
-                if (file.type.startsWith('image/')) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        const result = e.target?.result as string;
-                        if (result) {
-                            setImages(prev => [...prev, result]);
-                        }
-                    };
-                    reader.readAsDataURL(file);
-                }
-            });
-        }
-        if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-
-    const handlePaste = (e: React.ClipboardEvent) => {
-        const items = e.clipboardData.items;
-        for (let i = 0; i < items.length; i++) {
-            if (items[i].type.indexOf('image') !== -1) {
-                e.preventDefault();
-                const blob = items[i].getAsFile();
-                if (blob) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        const result = e.target?.result as string;
-                        if (result) {
-                            setImages(prev => [...prev, result]);
-                        }
-                    };
-                    reader.readAsDataURL(blob);
-                }
-            }
-        }
-    };
-
-    const removeImage = (index: number) => {
-        setImages(prev => prev.filter((_, i) => i !== index));
-    };
+    // Image Handlers Moved to FloatingInput
 
     // General drag handling - works for all states
     const dragRef = useRef({ isDragging: false, startX: 0, startY: 0, moved: false });
@@ -604,105 +584,29 @@ export function FloatingBallPage() {
                 </div>
             )}
 
-            {/* Input Area - Always Visible and Stable */}
-            <div className="p-2 shrink-0 z-10 bg-white dark:bg-zinc-950">
-                {/* Image Preview */}
-                {images.length > 0 && (
-                    <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
-                        {images.map((img, idx) => (
-                            <div key={idx} className="relative w-12 h-12 rounded border border-stone-200 overflow-hidden shrink-0 group">
-                                <img src={img} alt="Preview" className="w-full h-full object-cover" />
-                                <button
-                                    onClick={() => removeImage(idx)}
-                                    className="absolute top-0 right-0 bg-black/50 text-white p-0.5 opacity-0 group-hover:opacity-100"
-                                >
-                                    <X size={8} />
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                <form onSubmit={handleSubmit} className="flex flex-col gap-1">
-                    <div className="flex flex-col bg-[#FAF9F7] dark:bg-zinc-900/50 border border-stone-200 dark:border-zinc-800 rounded-[20px] px-3 pt-2 pb-1 shadow-sm transition-all hover:shadow-md focus-within:ring-4 focus-within:ring-orange-50/50 focus-within:border-orange-200">
-                        <textarea
-                            ref={inputRef}
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            onPaste={handlePaste}
-                            placeholder={t('describeTaskPlaceholderFloating')}
-                            rows={1}
-                            className="w-full bg-transparent text-stone-800 dark:text-zinc-100 placeholder:text-stone-400 dark:placeholder:text-zinc-500 text-sm focus:outline-none resize-none overflow-y-auto min-h-[24px] max-h-[72px] leading-6 pt-0.5 pb-0 transition-[height] duration-200 ease-out mb-0"
-                            style={{
-                                scrollbarWidth: 'none',
-                                msOverflowStyle: 'none',
-                                height: 'auto'
-                            }}
-                            autoFocus
-                        />
-
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-0.5">
-                                <button
-                                    type="button"
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
-                                    title={t('uploadImage')}
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 0 0 0-2.828 0L6 21" /></svg>
-                                </button>
-                                <input
-                                    type="file"
-                                    ref={fileInputRef}
-                                    className="hidden"
-                                    accept="image/*"
-                                    multiple
-                                    onChange={handleFileSelect}
-                                />
-                            </div>
-
-                            <div>
-                                {isProcessing ? (
-                                    <button
-                                        type="button"
-                                        onClick={handleAbort}
-                                        className="p-1 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-all flex items-center gap-1 px-2 shadow-sm"
-                                        title={t('stop')}
-                                    >
-                                        <Square size={12} fill="currentColor" />
-                                        <span className="text-[10px] font-semibold">{t('stop')}</span>
-                                    </button>
-                                ) : (
-                                    <button
-                                        type="submit"
-                                        disabled={!input.trim() && images.length === 0}
-                                        className={`p-1 rounded-lg transition-all shadow-sm flex items-center justify-center ${input.trim() || images.length > 0
-                                            ? 'bg-orange-500 text-white hover:bg-orange-600 hover:shadow-orange-200 hover:shadow-md'
-                                            : 'bg-stone-100 text-stone-300 cursor-not-allowed'
-                                            }`}
-                                        style={{ width: '26px', height: '26px' }}
-                                    >
-                                        <ArrowUp size={16} />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </form>
-            </div>
+            {/* Input Area - Using FloatingInput */}
+            <FloatingInput
+                onSendMessage={handleSubmit}
+                onAbort={handleAbort}
+                onContentChange={setHasContent}
+                isProcessing={isProcessing}
+                autoFocus={ballState === 'input'}
+            />
 
             {/* Quick Actions */}
             <div className="px-2 pb-1.5 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-1">
                     <button
                         onClick={async () => {
-                            const res = await window.ipcRenderer.invoke('agent:new-session') as { sessionId?: string };
-                            if (res && res.sessionId) {
-                                setSessionId(res.sessionId);
-                            }
+                            // Clear current conversation and start a new session
+                            await window.ipcRenderer.invoke('agent:new-session');
+                            setSessionId(null); // Reset to null so a new session will be created
+                            setIsNewSession(true); // Mark as new session
+                            hasInitialized.current = false; // Reset initialization flag
                             setMessages([]);
-                            setImages([]);
+                            setStreamingText('');
+                            // Keep the ball in input state for new conversation
+                            setBallState('input');
                         }}
                         className="flex items-center gap-1 px-2 py-1 text-xs text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"
                     >
@@ -749,11 +653,12 @@ export function FloatingBallPage() {
                                 {sessions.map((session) => (
                                     <button
                                         key={session.id}
-                                        onClick={() => {
-                                            setSessionId(session.id);
-                                            window.ipcRenderer.invoke('session:load', session.id);
+                                        onClick={async () => {
+                                            setSessionId(session.id); // Set the actual session ID
+                                            setIsNewSession(false); // Mark as existing session
+                                            await window.ipcRenderer.invoke('session:load', session.id);
                                             setShowHistory(false);
-                                            setBallState('expanded');
+                                            setBallState('expanded'); // Show conversation view
                                         }}
                                         className="w-full text-left p-2 hover:bg-stone-50 rounded-lg transition-colors group border border-transparent hover:border-stone-100"
                                     >

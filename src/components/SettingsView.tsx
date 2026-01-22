@@ -151,16 +151,8 @@ export function SettingsView({ onClose }: SettingsViewProps) {
             setAppInfo(info as any);
         });
 
-        // Silent update check
-        window.ipcRenderer?.invoke('app:check-update').then((result: any) => {
-            if (result && result.success && result.hasUpdate) {
-                setUpdateInfo({
-                    hasUpdate: result.hasUpdate,
-                    latestVersion: result.latestVersion,
-                    releaseUrl: result.releaseUrl
-                });
-            }
-        }).catch(err => console.error('Silent update check failed', err));
+        // Removed silent update check on mount to improve performance
+        // Updates should be checked in the About tab or manually
     }, []);
 
     const handleCheckUpdate = async () => {
@@ -291,10 +283,26 @@ export function SettingsView({ onClose }: SettingsViewProps) {
         window.ipcRenderer.invoke('skills:list').then(list => setSkills(list as SkillInfo[]));
     };
 
+    // Track previous config to prevent redundant saves
+    const prevConfigRef = useRef<string>('');
+
+    // Initialize prevConfigRef when config is first loaded
+    useEffect(() => {
+        if (config && prevConfigRef.current === '') {
+            prevConfigRef.current = JSON.stringify(config);
+        }
+    }, [config]);
+
     // Auto-save effect
     useEffect(() => {
         if (isFirstRender.current) {
             isFirstRender.current = false;
+            return;
+        }
+
+        // Deep comparison to avoid false positives
+        const currentConfigStr = JSON.stringify(config);
+        if (currentConfigStr === prevConfigRef.current) {
             return;
         }
 
@@ -304,6 +312,7 @@ export function SettingsView({ onClose }: SettingsViewProps) {
         const timer = setTimeout(async () => {
             try {
                 await window.ipcRenderer.invoke('config:set-all', config);
+                prevConfigRef.current = currentConfigStr; // Update ref only after successful save intent
                 setIsSaving(false);
                 setSaved(true);
                 setTimeout(() => setSaved(false), 2000);
