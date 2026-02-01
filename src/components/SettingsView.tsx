@@ -8,8 +8,10 @@ import logoMinimaxCn from '../assets/logo-minimax-cn.png';
 import logoMinimaxIntl from '../assets/logo-minimax-intl.png';
 import { SkillEditor } from './SkillEditor';
 import { MCPSettings } from './MCPSettings';
+import { MemorySettings } from './MemorySettings';
 import { useTheme } from '../theme/ThemeContext';
 import { useI18n } from '../i18n/I18nContext';
+import { logger } from '../services/logger';
 
 interface SettingsViewProps {
     onClose: () => void;
@@ -145,7 +147,7 @@ export function SettingsView({ onClose }: SettingsViewProps) {
     const isFirstRender = useRef(true);
     // Track previous config to prevent redundant saves
     const prevConfigRef = useRef<string>('');
-    const [activeTab, setActiveTab] = useState<'api' | 'folders' | 'mcp' | 'skills' | 'advanced' | 'about'>('api');
+    const [activeTab, setActiveTab] = useState<'api' | 'folders' | 'memory' | 'mcp' | 'skills' | 'advanced' | 'about'>('api');
     const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
     const [testing, setTesting] = useState(false);
@@ -179,7 +181,7 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                 });
             }
         } catch (error) {
-            console.error('Check update failed', error);
+            logger.error('Check update failed', error);
         } finally {
             setCheckingUpdate(false);
         }
@@ -339,7 +341,7 @@ export function SettingsView({ onClose }: SettingsViewProps) {
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
         } catch (err) {
-            console.error('Save failed:', err);
+            logger.error('Save failed:', err);
             setIsSaving(false);
         }
     };
@@ -442,6 +444,7 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                     {[
                         { id: 'api' as const, label: t('tabGeneral'), icon: <Settings size={14} /> },
                         { id: 'folders' as const, label: t('tabPermissions'), icon: <FolderOpen size={14} /> },
+                        { id: 'memory' as const, label: t('memory'), icon: <Activity size={14} /> },
                         { id: 'mcp' as const, label: t('tabMCP'), icon: <Server size={14} /> },
                         { id: 'skills' as const, label: t('tabSkills'), icon: <Zap size={14} /> },
                         { id: 'advanced' as const, label: t('tabAdvanced'), icon: <Settings size={14} /> },
@@ -928,6 +931,12 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                         {activeTab === 'mcp' && (
                             <div className="h-full flex flex-col">
                                 <MCPSettings config={config} />
+                            </div>
+                        )}
+
+                        {activeTab === 'memory' && (
+                            <div className="h-full flex flex-col overflow-hidden">
+                                <MemorySettings onClose={onClose} />
                             </div>
                         )}
 

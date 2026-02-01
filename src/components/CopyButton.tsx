@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
+import { logger } from '../services/logger';
 
 interface CopyButtonProps {
     content: string;
@@ -18,7 +19,7 @@ export function CopyButton({ content, size = 'md', showLabel = false }: CopyButt
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
         } catch (err) {
-            console.error('Failed to copy:', err);
+            logger.error('Failed to copy:', err);
         }
     };
 

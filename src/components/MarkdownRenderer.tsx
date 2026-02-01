@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism';
 import { oneLight, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import mermaid from 'mermaid';
 import { Check, Copy } from 'lucide-react';
+import { logger } from '../services/logger';
 
 // Initialize mermaid
 mermaid.initialize({
@@ -18,11 +20,12 @@ interface MarkdownRendererProps {
     content: string;
     className?: string;
     isDark?: boolean;
+    onFilePathClick?: (filePath: string) => void;
 }
 
 import { useI18n } from '../i18n/I18nContext';
 
-export function MarkdownRenderer({ content, className = '', isDark = false }: MarkdownRendererProps) {
+export function MarkdownRenderer({ content, className = '', isDark = false, onFilePathClick }: MarkdownRendererProps) {
     const { t } = useI18n();
     return (
         <div className={`prose ${isDark ? 'prose-invert' : 'prose-stone'} max-w-none ${className}`}>
@@ -89,8 +92,14 @@ export function MarkdownRenderer({ content, className = '', isDark = false }: Ma
                             return (
                                 <code
                                     className={`${className} px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-mono text-sm border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors`}
-                                    onClick={() => window.ipcRenderer.invoke('shell:open-path', codeText)}
-                                    title={t('openInFileManager')}
+                                    onClick={() => {
+                                        if (onFilePathClick) {
+                                            onFilePathClick(codeText);
+                                        } else {
+                                            window.ipcRenderer.invoke('shell:open-path', codeText);
+                                        }
+                                    }}
+                                    title={onFilePathClick ? '在文件画布中打开' : t('openInFileManager')}
                                     {...props}
                                 >
                                     📁 {children}
@@ -128,6 +137,25 @@ export function MarkdownRenderer({ content, className = '', isDark = false }: Ma
                     },
                     // Improved Spacing for Typography
                     p({ children }) {
+                        // ⚠️ 只处理纯文本内容的换行，不破坏 React 组件
+                        // 检查 children 是否为纯字符串
+                        const isPlainText = typeof children === 'string' ||
+                            (Array.isArray(children) && children.every(child => typeof child === 'string'));
+
+                        if (isPlainText && typeof children === 'string') {
+                            // 将换行符转换为 <br />
+                            const lines = children.split('\n');
+                            if (lines.length > 1) {
+                                const formattedContent = lines.map((line, index) => (
+                                    <React.Fragment key={index}>
+                                        {line}
+                                        {index < lines.length - 1 && <br />}
+                                    </React.Fragment>
+                                ));
+                                return <p className="mb-4 leading-7 text-stone-700 dark:text-zinc-300 last:mb-0">{formattedContent}</p>;
+                            }
+                        }
+                        // 对于复杂内容（包含组件等），保持原样
                         return <p className="mb-4 leading-7 text-stone-700 dark:text-zinc-300 last:mb-0">{children}</p>;
                     },
                     ul({ children }) {
@@ -173,7 +201,7 @@ function MermaidDiagram({ code, isDark }: { code: string, isDark: boolean }) {
         mermaid.render(renderId.current, code).then(({ svg }) => {
             setSvg(svg);
         }).catch((err) => {
-            console.error('Mermaid render error:', err);
+            logger.error('Mermaid render error:', err);
             setSvg(`<div class="text-red-500 bg-red-50 p-2 rounded text-xs font-mono">Failed to render diagram</div>`);
         });
     }, [code, isDark]);
